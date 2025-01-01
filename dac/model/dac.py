@@ -19,7 +19,9 @@ def init_weights(m):
     if isinstance(m, nn.Conv1d):
         nn.init.trunc_normal_(m.weight, std=0.02)
         nn.init.constant_(m.bias, 0)
-
+    elif isinstance(m, nn.Linear):
+        nn.init.xavier_normal_(m.weight)
+        nn.init.constant_(m.bias, 0)
 
 class ResidualUnit(nn.Module):
     def __init__(self, dim: int = 16, dilation: int = 1):
@@ -206,7 +208,7 @@ class DAC(BaseModel, CodecMixin):
     
     def compute_kl_loss(self,mu, log_var):
         # KL Loss 公式
-        kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=-1)  # 按最后一维求和
+        kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - (log_var.exp() + 1e-6), dim=-1)  # 按最后一维求和
         return kl_loss.mean()  # 求 batch 的平均值
     
     def encode(
