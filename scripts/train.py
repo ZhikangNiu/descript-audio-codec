@@ -267,7 +267,7 @@ def train_loop(state, batch, accel, lambdas):
     accel.backward(output["loss"])
     accel.scaler.unscale_(state.optimizer_g)
     output["other/grad_norm"] = torch.nn.utils.clip_grad_norm_(
-        state.generator.parameters(), 1e3
+        state.generator.parameters(), 10 # 1e3?
     )
     accel.step(state.optimizer_g)
     state.scheduler_g.step()
