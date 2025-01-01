@@ -102,6 +102,7 @@ class DecoderBlock(nn.Module):
                 kernel_size=2 * stride,
                 stride=stride,
                 padding=math.ceil(stride / 2),
+                output_padding=0 if stride % 2 == 0 else 1
             ),
             ResidualUnit(output_dim, dilation=1),
             ResidualUnit(output_dim, dilation=3),
@@ -152,10 +153,7 @@ class DAC(BaseModel, CodecMixin):
         latent_dim: int = None,
         decoder_dim: int = 1536,
         decoder_rates: List[int] = [8, 8, 4, 2],
-        n_codebooks: int = 9,
-        codebook_size: int = 1024,
-        codebook_dim: Union[int, list] = 8,
-        quantizer_dropout: bool = False,
+        vae_dim: Union[int, list] = 8,
         sample_rate: int = 44100,
     ):
         super().__init__()
@@ -173,18 +171,13 @@ class DAC(BaseModel, CodecMixin):
 
         self.hop_length = np.prod(encoder_rates)
         self.encoder = Encoder(encoder_dim, encoder_rates, latent_dim)
+        self.vae_dim = vae_dim
 
-        self.n_codebooks = n_codebooks
-        self.codebook_size = codebook_size
-        self.codebook_dim = codebook_dim
-        self.quantizer = ResidualVectorQuantize(
-            input_dim=latent_dim,
-            n_codebooks=n_codebooks,
-            codebook_size=codebook_size,
-            codebook_dim=codebook_dim,
-            quantizer_dropout=quantizer_dropout,
-        )
-
+        self.fc_mu = nn.Linear(latent_dim, self.vae_dim)
+        self.fc_var = nn.Linear(latent_dim, self.vae_dim)
+        
+        self.decoder_proj = nn.Linear(self.vae_dim,latent_dim)
+        
         self.decoder = Decoder(
             latent_dim,
             decoder_dim,
@@ -206,10 +199,19 @@ class DAC(BaseModel, CodecMixin):
 
         return audio_data
 
+    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) :
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return eps * std + mu
+    
+    def compute_kl_loss(self,mu, log_var):
+        # KL Loss 公式
+        kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=-1)  # 按最后一维求和
+        return kl_loss.mean()  # 求 batch 的平均值
+    
     def encode(
         self,
-        audio_data: torch.Tensor,
-        n_quantizers: int = None,
+        audio_data: torch.Tensor
     ):
         """Encode given audio data and return quantized latent codes
 
@@ -217,9 +219,6 @@ class DAC(BaseModel, CodecMixin):
         ----------
         audio_data : Tensor[B x 1 x T]
             Audio data to encode
-        n_quantizers : int, optional
-            Number of quantizers to use, by default None
-            If None, all quantizers are used.
 
         Returns
         -------
@@ -240,11 +239,15 @@ class DAC(BaseModel, CodecMixin):
             "length" : int
                 Number of samples in input audio
         """
-        z = self.encoder(audio_data)
-        z, codes, latents, commitment_loss, codebook_loss = self.quantizer(
-            z, n_quantizers
-        )
-        return z, codes, latents, commitment_loss, codebook_loss
+        z = self.encoder(audio_data).transpose(1,2) # torch.Size([72, 1024, 29]),[B x D x T] -> torch.Size([72, 29, 1024]),[B x T x D] ->vq torch.Size([72, 29, 8]),[B x D x T]
+        mu = self.fc_mu(z)
+        log_var = self.fc_var(z)
+        
+        z_hat = self.decoder_proj(self.reparameterize(mu,log_var)).transpose(1,2)
+        kl_loss = self.compute_kl_loss(mu,log_var)
+        
+        return z_hat, mu, log_var, kl_loss
+        # return z, codes, latents, commitment_loss, codebook_loss
 
     def decode(self, z: torch.Tensor):
         """Decode given latent codes and return audio data
@@ -269,7 +272,6 @@ class DAC(BaseModel, CodecMixin):
         self,
         audio_data: torch.Tensor,
         sample_rate: int = None,
-        n_quantizers: int = None,
     ):
         """Model forward pass
 
@@ -280,9 +282,6 @@ class DAC(BaseModel, CodecMixin):
         sample_rate : int, optional
             Sample rate of audio data in Hz, by default None
             If None, defaults to `self.sample_rate`
-        n_quantizers : int, optional
-            Number of quantizers to use, by default None.
-            If None, all quantizers are used.
 
         Returns
         -------
@@ -307,18 +306,15 @@ class DAC(BaseModel, CodecMixin):
         """
         length = audio_data.shape[-1]
         audio_data = self.preprocess(audio_data, sample_rate)
-        z, codes, latents, commitment_loss, codebook_loss = self.encode(
-            audio_data, n_quantizers
-        )
+        z, mu, log_var, kl_loss = self.encode(audio_data)
 
         x = self.decode(z)
         return {
             "audio": x[..., :length],
             "z": z,
-            "codes": codes,
-            "latents": latents,
-            "vq/commitment_loss": commitment_loss,
-            "vq/codebook_loss": codebook_loss,
+            "mu": mu,
+            "log_var": log_var,
+            "vae/kl_loss": kl_loss,
         }
 
 

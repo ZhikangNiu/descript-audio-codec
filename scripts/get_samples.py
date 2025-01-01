@@ -25,7 +25,7 @@ def load_state(
     kwargs = {
         "folder": f"{save_path}/{tag}",
         "map_location": "cpu",
-        "package": not load_weights,
+        "package": False, # NOTE: 不太确定这个有什么影响
     }
     tracker.print(f"Resuming from {str(Path('.').absolute())}/{kwargs['folder']}")
 
