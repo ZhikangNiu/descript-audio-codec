@@ -57,7 +57,6 @@ def get_samples(
     model_type: str = "dac",
     model_tag: str = "latest",
     bandwidth: float = 24.0,
-    n_quantizers: int = None,
 ):
     tracker = Tracker(log_file=f"{path}/eval.txt", rank=accel.local_rank)
     generator = load_state(
@@ -69,7 +68,6 @@ def get_samples(
         tag=model_tag,
     )
     generator.eval()
-    kwargs = {"n_quantizers": n_quantizers} if model_type == "dac" else {}
 
     audio_files = util.find_audio(input)
 
@@ -82,7 +80,7 @@ def get_samples(
     with tracker.live:
         for i in range(len(audio_files)):
             signal = AudioSignal(audio_files[i])
-            recons = process(signal, accel, generator, **kwargs)
+            recons = process(signal, accel, generator)
             recons.write(output / audio_files[i].name)
 
         tracker.done("test", f"N={len(audio_files)}")

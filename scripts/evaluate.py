@@ -9,10 +9,10 @@ import torch
 from audiotools import AudioSignal
 from audiotools import metrics
 from audiotools.core import util
-from audiotools.ml.decorators import Tracker
 from train import losses
+from tqdm import tqdm
 
-
+sr = 24000
 @dataclass
 class State:
     stft_loss: losses.MultiScaleSTFTLoss
@@ -25,34 +25,33 @@ def get_metrics(signal_path, recons_path, state):
     output = {}
     signal = AudioSignal(signal_path)
     recons = AudioSignal(recons_path)
-    for sr in [22050, 44100]:
-        x = signal.clone().resample(sr)
-        y = recons.clone().resample(sr)
-        k = "22k" if sr == 22050 else "44k"
-        output.update(
-            {
-                f"mel-{k}": state.mel_loss(x, y),
-                f"stft-{k}": state.stft_loss(x, y),
-                f"waveform-{k}": state.waveform_loss(x, y),
-                f"sisdr-{k}": state.sisdr_loss(x, y),
-                f"visqol-audio-{k}": metrics.quality.visqol(x, y),
-                f"visqol-speech-{k}": metrics.quality.visqol(x, y, "speech"),
-            }
-        )
-    output["path"] = signal.path_to_file
-    output.update(signal.metadata)
+    # for sr in [24000, 44100]:
+    x = signal.clone().resample(sr)
+    y = recons.clone().resample(sr)
+    k = "24k" if sr == 24000 else "44k"
+    output["name"] = signal.path_to_file.stem
+    output.update(
+        {
+            f"mel-{k}": state.mel_loss(x, y),
+            f"stft-{k}": state.stft_loss(x, y),
+            f"waveform-{k}": state.waveform_loss(x, y),
+            f"sisdr-{k}": state.sisdr_loss(x, y),
+            f"pseq-{k}" : metrics.quality.pesq(x,y),
+            f"stoi-{k}" : metrics.quality.stoi(x,y)
+            # f"visqol-audio-{k}": metrics.quality.visqol(x, y),
+            # f"visqol-speech-{k}": metrics.quality.visqol(x, y, "speech"),
+        }
+    )
+    # output.update(signal.metadata)
     return output
 
 
 @argbind.bind(without_prefix=True)
-@torch.no_grad()
+@torch.inference_mode()
 def evaluate(
-    input: str = "samples/input",
-    output: str = "samples/output",
-    n_proc: int = 50,
+    input: str = "samples/input", # gt
+    output: str = "samples/output", # recon
 ):
-    tracker = Tracker()
-
     waveform_loss = losses.L1Loss()
     stft_loss = losses.MultiScaleSTFTLoss()
     mel_loss = losses.MelSpectrogramLoss()
@@ -69,35 +68,26 @@ def evaluate(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
 
-    @tracker.track("metrics", len(audio_files))
-    def record(future, writer):
-        o = future.result()
+    
+    def record(o, writer):
         for k, v in o.items():
             if torch.is_tensor(v):
                 o[k] = v.item()
         writer.writerow(o)
-        o.pop("path")
         return o
 
-    futures = []
-    with tracker.live:
-        with open(output / "metrics.csv", "w") as csvfile:
-            with ProcessPoolExecutor(n_proc, mp.get_context("fork")) as pool:
-                for i in range(len(audio_files)):
-                    future = pool.submit(
-                        get_metrics, audio_files[i], output / audio_files[i].name, state
-                    )
-                    futures.append(future)
+    all_results = []
+    for i in range(len(audio_files)):
+        file_results = get_metrics(audio_files[i], output / audio_files[i].name, state)
+        all_results.append(file_results)
+    
 
-                keys = list(futures[0].result().keys())
-                writer = csv.DictWriter(csvfile, fieldnames=keys)
-                writer.writeheader()
-
-                for future in futures:
-                    record(future, writer)
-
-        tracker.done("test", f"N={len(audio_files)}")
-
+    with open(output / "metrics.csv", "w") as csvfile:
+        keys = list(all_results[0].keys())
+        writer = csv.DictWriter(csvfile, fieldnames=keys)
+        writer.writeheader()
+        for line in all_results:
+            record(line, writer)
 
 if __name__ == "__main__":
     args = argbind.parse_args()
