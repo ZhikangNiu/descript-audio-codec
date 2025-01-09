@@ -21,7 +21,7 @@ mkdir -p "${log_dir}"
 
 
 # 循环处理每个模型标签
-for tag in 10k 50k 100k 200k best; do
+for tag in 200k 300k 400k best; do
     echo "exp_name: runs/2gpu/${exp_name}"
     echo "output: ./results/2gpu/${exp_name}/$tag"
     echo "model_tag: ${tag}"
@@ -37,19 +37,11 @@ for tag in 10k 50k 100k 200k best; do
         --input "${lt_test_other}" \
         --output "./results/2gpu/${exp_name}/$tag" \
         --model_tag "$tag"
-
-    # # 运行 evaluate.py，并将日志保存到文件
-    # python scripts/evaluate.py \
-    #     --input "${lt_test_other}" \
-    #     --output "./results/2gpu/${exp_name}/$tag" \
-    #     > "${log_dir}/${tag}_evaluate.log" 2>&1
-
-    # echo "Evaluation log saved to ${log_dir}/${tag}_evaluate.log"
 done
 
 
 # 循环处理每个模型标签
-for tag in 10k 50k 100k 200k best; do
+for tag in 200k 300k 400k best; do
     echo "exp_name: runs/2gpu/${exp_name}"
     echo "output: ./results/2gpu/${exp_name}/$tag"
     echo "model_tag: ${tag}"
@@ -65,13 +57,3 @@ for tag in 10k 50k 100k 200k best; do
     python scripts/get_metrics.py ./results/2gpu/${exp_name}/$tag \
         > "${log_dir}/${tag}_evaluate.log" 2>&1
 done
-
-
-# python scripts/get_samples.py --path=runs/2gpu/320x_vae_dim32_grad10_kl5e-6 --input ${lt_test_other} --output ./results/2gpu/320x_vae_dim32_grad10_kl5e-6
-# python scripts/get_samples.py --path=runs/2gpu/1600x_vae_dim32_grad10_kl5e-5 --input ${lt_test_other} --output ./results/2gpu/1600x_vae_dim32_grad10_kl5e-5
-# python scripts/get_samples.py --path runs/2gpu/${exp_name} --input ${lt_test_other} --output ./results/2gpu/320x_vae_dim32_grad10 --model_tag 
-# rm ./results/2gpu/320x_vae_dim32_grad10_kl5e-6/metrics.csv
-# rm ./results/2gpu/1600x_vae_dim32_grad10_kl5e-5/metrics.csv
-# python scripts/evaluate.py --input ${lt_test_other}  --output ./results/2gpu/320x_vae_dim32_grad10
-# python scripts/evaluate.py --input ${lt_test_other}  --output ./results/2gpu/320x_vae_dim32_grad10_kl5e-6
-# python scripts/evaluate.py --input ${lt_test_other}  --output ./results/2gpu/1600x_vae_dim32_grad10_kl5e-5

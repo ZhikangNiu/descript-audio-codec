@@ -28,6 +28,11 @@ def get_metrics(signal_path, recons_path, state):
     # for sr in [24000, 44100]:
     x = signal.clone().resample(sr)
     y = recons.clone().resample(sr)
+    if x.signal_length != y.signal_length:
+        min_length = min(x.signal_length,y.signal_length)
+        x = x[:,:,:min_length]
+        y = y[:,:,:min_length]
+    # import ipdb;ipdb.set_trace()
     k = "24k" if sr == 24000 else "44k"
     output["name"] = signal.path_to_file.stem
     output.update(
