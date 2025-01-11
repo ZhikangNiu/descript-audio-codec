@@ -215,41 +215,15 @@ class DAC(BaseModel, CodecMixin):
         self,
         audio_data: torch.Tensor
     ):
-        """Encode given audio data and return quantized latent codes
-
-        Parameters
-        ----------
-        audio_data : Tensor[B x 1 x T]
-            Audio data to encode
-
-        Returns
-        -------
-        dict
-            A dictionary with the following keys:
-            "z" : Tensor[B x D x T]
-                Quantized continuous representation of input
-            "codes" : Tensor[B x N x T]
-                Codebook indices for each codebook
-                (quantized discrete representation of input)
-            "latents" : Tensor[B x N*D x T]
-                Projected latents (continuous representation of input before quantization)
-            "vq/commitment_loss" : Tensor[1]
-                Commitment loss to train encoder to predict vectors closer to codebook
-                entries
-            "vq/codebook_loss" : Tensor[1]
-                Codebook loss to update the codebook
-            "length" : int
-                Number of samples in input audio
-        """
         z = self.encoder(audio_data).transpose(1,2) # torch.Size([72, 1024, 29]),[B x D x T] -> torch.Size([72, 29, 1024]),[B x T x D] ->vq torch.Size([72, 29, 8]),[B x D x T]
         mu = self.fc_mu(z)
         log_var = self.fc_var(z)
+        log_var = torch.clamp(log_var, min=-12, max=12) # log var可能会爆掉
         
         z_hat = self.decoder_proj(self.reparameterize(mu,log_var)).transpose(1,2)
         kl_loss = self.compute_kl_loss(mu,log_var)
         
         return z_hat, mu, log_var, kl_loss
-        # return z, codes, latents, commitment_loss, codebook_loss
 
     def decode(self, z: torch.Tensor):
         """Decode given latent codes and return audio data
