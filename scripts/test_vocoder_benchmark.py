@@ -6,17 +6,24 @@ import torchaudio
 import argparse
 import os
 import sys
-print(f"{os.path.dirname(os.path.abspath(__file__))}/../third_party")
 sys.path.append(f"{os.path.dirname(os.path.abspath(__file__))}/../third_party")
 sys.path.append(f"{os.path.dirname(os.path.abspath(__file__))}/../third_party/BigVGAN")
 # import ipdb;ipdb.set_trace()
 from BigVGAN import bigvgan
 from BigVGAN.meldataset import get_mel_spectrogram
+# from stable_codec import StableCodec
 
 
 lt_root="/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS"
 vocos_ckpt = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/dev_f5_be53fb1/checkpoints/vocos-mel-24khz"
 bigvgan_ckpt = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/dev_f5_be53fb1/checkpoints/bigvgan_v2_24khz_100band_256x/"
+stable_codec_ckpt = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/stable-codec/ckpt/stable-codec-speech-16k"
+
+ckpt_dict = {
+    "vocos" : vocos_ckpt,
+    "bigvgan": bigvgan_ckpt,
+    "stable-codec": stable_codec_ckpt
+}
 AUDIO_EXTENSIONS = [".wav", ".flac", ".mp3", ".mp4"]
 
 def find_audio(folder: str, ext=AUDIO_EXTENSIONS):
@@ -70,6 +77,12 @@ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device="cu
 
         vocoder.remove_weight_norm()
         vocoder = vocoder.eval().to(device)
+    elif vocoder_name == "stable-codec":
+        vocoder = StableCodec(
+            model_config_path=os.path.join(local_path,"model_config.json"),
+            ckpt_path=os.path.join(local_path,"model.safetensors"), # optional, can be `None`,
+            device = torch.device("cuda") # not support cpu 
+        )
     return vocoder
 
 @torch.inference_mode
@@ -86,7 +99,7 @@ def cli_main(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     
-    local_ckpt_path = vocos_ckpt if vocoder_name == "vocos" else bigvgan_ckpt
+    local_ckpt_path = ckpt_dict[vocoder_name]
     vocoder = load_vocoder(
         vocoder_name=vocoder_name,
         is_local=True,
@@ -95,19 +108,31 @@ def cli_main(
     )
     
     for file in audio_files:
-        y, sr = torchaudio.load(file)
-        length = y.size(1)
-        if y.size(0) > 1:  # mix to mono
-            y = y.mean(dim=0, keepdim=True)
-        if sr != 24000:
-            y = torchaudio.functional.resample(y, orig_freq=sr, new_freq=24000)
-        if vocoder_name == "vocos":
-            y_hat = vocoder(y.cuda())[:,:length].cpu()
-        else:
-            mel = get_mel_spectrogram(y, vocoder.h).cuda()
-            y_hat = vocoder(mel).squeeze(0).cpu()
-
-        torchaudio.save(output / file.name, y_hat, 24000)
+        if vocoder_name in ["vocos","bigvgan"]:
+            y, sr = torchaudio.load(file)
+            if y.size(0) > 1:  # mix to mono
+                y = y.mean(dim=0, keepdim=True)
+            if sr != 24000:
+                y = torchaudio.functional.resample(y, orig_freq=sr, new_freq=24000)
+            if vocoder_name == "vocos":
+                y_hat = vocoder(y.cuda()).cpu()
+            else:
+                mel = get_mel_spectrogram(y, vocoder.h).cuda()
+                y_hat = vocoder(mel).squeeze(0).cpu()
+            relative_path = file.relative_to(input_subset)
+            output_path = output / relative_path
+            os.makedirs(output_path.parent, exist_ok=True)
+            torchaudio.save(output_path, y_hat, 24000)
+        elif vocoder_name == "stable-codec":
+            try:
+                latents, tokens = vocoder.encode(str(file))
+                decoded_audio = vocoder.decode(tokens)
+                relative_path = file.relative_to(input_subset)
+                output_path = output / relative_path
+                os.makedirs(output_path.parent, exist_ok=True)
+                torchaudio.save(output_path, decoded_audio.squeeze(0).cpu(), vocoder.sample_rate)
+            except:
+                print(file)
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Vocoder Inference Script")

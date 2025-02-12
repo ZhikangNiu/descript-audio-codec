@@ -83,8 +83,11 @@ def evaluate(
 
     all_results = []
     for i in range(len(audio_files)):
-        file_results = get_metrics(audio_files[i], output / audio_files[i].name, state)
-        all_results.append(file_results)
+        try:
+            file_results = get_metrics(audio_files[i], output / audio_files[i].name, state)
+            all_results.append(file_results)
+        except FileNotFoundError as e:
+            print(f"Not found {output / audio_files[i].name}")
     
 
     with open(output / "metrics.csv", "w") as csvfile:
