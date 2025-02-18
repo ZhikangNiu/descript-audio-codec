@@ -345,6 +345,20 @@ def validate(state, val_dataloader, accel):
         state.optimizer_d.consolidate_state_dict()
     return output
 
+def kl_warmup_func(
+    kl_start_weight: float, 
+    kl_end_weight: float, 
+    total_warmup_steps: int, 
+    current_step: int
+) -> float:
+    if current_step >= total_warmup_steps:
+        return kl_end_weight  # 热身结束后保持目标值
+    
+    warmup_freq = int(total_warmup_steps / 4)
+    stage = min(current_step // warmup_freq, 3)  # 限制最多4个阶段（0-3）
+    update_kl = (kl_end_weight - kl_start_weight) / 4
+    current_weight = kl_start_weight + (stage + 1) * update_kl
+    return min(current_weight, kl_end_weight)  # 确保不超过目标值
 
 @argbind.bind(without_prefix=True)
 def train(
@@ -366,6 +380,9 @@ def train(
         "adv/gen_loss": 1.0,
         "vae/kl_loss": 1.0
     },
+    use_kl_warmup: bool = False,
+    kl_warmup_ratio: float = 0.25,
+    kl_start_weight: float = 5e-5,
 ):
     util.seed(seed)
     Path(save_path).mkdir(exist_ok=True, parents=True)
@@ -406,9 +423,20 @@ def train(
     # These functions run only on the 0-rank process
     save_samples = when(lambda: accel.local_rank == 0)(save_samples)
     checkpoint = when(lambda: accel.local_rank == 0)(checkpoint)
-
+    
+    if use_kl_warmup:
+        total_warmup_steps = int(num_iters * kl_warmup_ratio)
+        kl_end_weight = lambdas["vae/kl_loss"]
+        state.tracker.print(f"KL start weight: {kl_start_weight}")
+        state.tracker.print(f"KL end weight: {kl_end_weight}")
+        state.tracker.print(f"KL warmup steps: {total_warmup_steps}")
+        
     with tracker.live:
         for tracker.step, batch in enumerate(train_dataloader, start=tracker.step):
+            if use_kl_warmup:
+                lambdas["vae/kl_loss"] = kl_warmup_func(
+                    kl_start_weight, kl_end_weight, total_warmup_steps, tracker.step
+                )        
             train_loop(state, batch, accel, lambdas)
 
             last_iter = (

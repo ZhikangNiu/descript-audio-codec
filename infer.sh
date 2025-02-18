@@ -21,7 +21,8 @@ mkdir -p "${log_dir}"
 
 
 # 循环处理每个模型标签
-for tag in 200k 300k 400k best; do
+# for tag in 300k 400k best; do
+for tag in 300k 400k best; do
     echo "exp_name: runs/2gpu/${exp_name}"
     echo "output: ./results/2gpu/${exp_name}/$tag"
     echo "model_tag: ${tag}"
@@ -40,8 +41,8 @@ for tag in 200k 300k 400k best; do
 done
 
 
-# 循环处理每个模型标签
-for tag in 200k 300k 400k best; do
+# # 循环处理每个模型标签
+for tag in 300k 400k best; do
     echo "exp_name: runs/2gpu/${exp_name}"
     echo "output: ./results/2gpu/${exp_name}/$tag"
     echo "model_tag: ${tag}"

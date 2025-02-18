@@ -7,4 +7,4 @@ export OMP_NUM_THREADS=1
 # torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl5e-5_vae128.yml --save_path runs/2gpu/24khz_1600x_kl5e-5_vae128_clamp_logvar/
 # torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl5e-4_vae128.yml --save_path runs/2gpu/24khz_1600x_kl5e-4_vae128/ 
 # torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl1e-2_vae64.yml --save_path runs/2gpu/24khz_1600x_kl1e-2_vae64
-torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_800x_8544_kl5e-5_vae32.yml --save_path runs/2gpu/24khz_800x_8544_kl5e-5_vae32_clamp_logvar/
+torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_800x_8544_kl1e-1_vae32.yaml --save_path runs/2gpu/24khz_800x_8544_kl1e-1_vae32_clamp_logvar/

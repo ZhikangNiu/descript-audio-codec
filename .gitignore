@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 *.npy
+<<<<<<< HEAD
+=======
+
+>>>>>>> 80593705424289c92eaffe1cbb34473dca2c1363
 # Distribution / packaging
 .Python
 build/
