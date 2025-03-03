@@ -148,7 +148,14 @@ def load(
 
     generator = DAC() if generator is None else generator
     discriminator = Discriminator() if discriminator is None else discriminator
-
+    if accel.use_ddp:
+        generator = torch.nn.SyncBatchNorm.convert_sync_batchnorm(generator)
+        discriminator = torch.nn.SyncBatchNorm.convert_sync_batchnorm(discriminator)
+    tracker.print("="*50 + " Model Parameters " + "="*50)
+    tracker.print(f"[Encoder] Parameters: {count_parameters(generator.encoder):,}")
+    tracker.print(f"[Decoder] Parameters: {count_parameters(generator.decoder):,}")
+    tracker.print(f"[Total] Parameters: {count_parameters(generator):,}")
+    tracker.print("="*100 + "\n")
     tracker.print(generator)
     tracker.print(discriminator)
 
@@ -177,8 +184,17 @@ def load(
     sample_rate = accel.unwrap(generator).sample_rate
     with argbind.scope(args, "train"):
         train_data = build_dataset(sample_rate)
+        tracker.print(f"[Train Dataset] Total samples: {len(train_data)}")
+        if hasattr(train_data, 'datasets'):  # 如果是ConcatDataset
+            for i, ds in enumerate(train_data.datasets):
+                tracker.print(f"  Subset {i+1}: {len(ds)} samples")
     with argbind.scope(args, "val"):
         val_data = build_dataset(sample_rate)
+        # 新增验证集信息打印
+        tracker.print(f"[Val Dataset] Total samples: {len(val_data)}")
+        if hasattr(val_data, 'datasets'):
+            for i, ds in enumerate(val_data.datasets):
+                tracker.print(f"  Subset {i+1}: {len(ds)} samples")
 
     waveform_loss = losses.L1Loss()
     stft_loss = losses.MultiScaleSTFTLoss()
@@ -344,6 +360,9 @@ def validate(state, val_dataloader, accel):
         state.optimizer_g.consolidate_state_dict()
         state.optimizer_d.consolidate_state_dict()
     return output
+
+def count_parameters(module):
+    return sum(p.numel() for p in module.parameters() if p.requires_grad)
 
 def kl_warmup_func(
     kl_start_weight: float, 

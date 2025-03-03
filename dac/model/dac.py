@@ -146,6 +146,20 @@ class Decoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+class ResidualBottleneck(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            nn.LayerNorm(out_dim),  # 替换为 LayerNorm
+            nn.GELU(),
+            nn.Linear(out_dim, out_dim),
+            nn.LayerNorm(out_dim)   # 替换为 LayerNorm
+        )
+        self.shortcut = nn.Linear(in_dim, out_dim) if in_dim != out_dim else nn.Identity()
+        
+    def forward(self, x):
+        return self.block(x) + self.shortcut(x)
 
 class DAC(BaseModel, CodecMixin):
     def __init__(
@@ -157,6 +171,8 @@ class DAC(BaseModel, CodecMixin):
         decoder_rates: List[int] = [8, 8, 4, 2],
         vae_dim: Union[int, list] = 8,
         sample_rate: int = 44100,
+        pre_vae_block: bool = False,
+        post_vae_block: bool = False
     ):
         super().__init__()
 
@@ -174,11 +190,17 @@ class DAC(BaseModel, CodecMixin):
         self.hop_length = np.prod(encoder_rates)
         self.encoder = Encoder(encoder_dim, encoder_rates, latent_dim)
         self.vae_dim = vae_dim
-
-        self.fc_mu = nn.Linear(latent_dim, self.vae_dim)
-        self.fc_var = nn.Linear(latent_dim, self.vae_dim)
+        if pre_vae_block:
+            self.pre_block = self._build_residual_blocks(latent_dim,self.vae_dim)
+        else:
+            self.pre_block = nn.Linear(latent_dim,self.vae_dim)
+        self.fc_mu = nn.Linear(self.vae_dim, self.vae_dim)
+        self.fc_var = nn.Linear(self.vae_dim, self.vae_dim)
         
-        self.decoder_proj = nn.Linear(self.vae_dim,latent_dim)
+        if post_vae_block:
+            self.decoder_proj = self._build_residual_blocks(self.vae_dim,latent_dim)
+        else:
+            self.decoder_proj = nn.Linear(self.vae_dim,latent_dim)
         
         self.decoder = Decoder(
             latent_dim,
@@ -190,6 +212,33 @@ class DAC(BaseModel, CodecMixin):
 
         self.delay = self.get_delay()
 
+    def _build_residual_blocks(self, in_dim, out_dim):
+        layers = []
+        current_dim = in_dim
+        max_depth = 3
+        
+        # 统一处理维度变换
+        if in_dim != out_dim:
+            step_fn = (lambda x: max(x//2, out_dim)) if in_dim > out_dim else (lambda x: min(x*2, out_dim))
+            for _ in range(max_depth):
+                next_dim = step_fn(current_dim)
+                layers.append(ResidualBottleneck(current_dim, next_dim))
+                current_dim = next_dim
+                if current_dim == out_dim:
+                    break
+            # 强制最终维度对齐
+            if current_dim != out_dim:
+                layers.append(nn.Sequential(
+                    nn.Linear(current_dim, out_dim),
+                    # nn.BatchNorm1d(out_dim),
+                    nn.GELU()
+                ))
+        else:
+            # 维度相同则构建恒等残差块
+            layers.append(ResidualBottleneck(in_dim, out_dim))
+        
+        return nn.Sequential(*layers)
+        
     def preprocess(self, audio_data, sample_rate):
         if sample_rate is None:
             sample_rate = self.sample_rate
@@ -216,6 +265,7 @@ class DAC(BaseModel, CodecMixin):
         audio_data: torch.Tensor
     ):
         z = self.encoder(audio_data).transpose(1,2) # torch.Size([72, 1024, 29]),[B x D x T] -> torch.Size([72, 29, 1024]),[B x T x D] ->vq torch.Size([72, 29, 8]),[B x D x T]
+        z = self.pre_block(z)
         mu = self.fc_mu(z)
         log_var = self.fc_var(z)
         log_var = torch.clamp(log_var, min=-12, max=12) # log var可能会爆掉
@@ -226,22 +276,6 @@ class DAC(BaseModel, CodecMixin):
         return z_hat, mu, log_var, kl_loss
 
     def decode(self, z: torch.Tensor):
-        """Decode given latent codes and return audio data
-
-        Parameters
-        ----------
-        z : Tensor[B x D x T]
-            Quantized continuous representation of input
-        length : int, optional
-            Number of samples in output audio, by default None
-
-        Returns
-        -------
-        dict
-            A dictionary with the following keys:
-            "audio" : Tensor[B x 1 x length]
-                Decoded audio data.
-        """
         return self.decoder(z)
 
     def forward(
@@ -249,37 +283,6 @@ class DAC(BaseModel, CodecMixin):
         audio_data: torch.Tensor,
         sample_rate: int = None,
     ):
-        """Model forward pass
-
-        Parameters
-        ----------
-        audio_data : Tensor[B x 1 x T]
-            Audio data to encode
-        sample_rate : int, optional
-            Sample rate of audio data in Hz, by default None
-            If None, defaults to `self.sample_rate`
-
-        Returns
-        -------
-        dict
-            A dictionary with the following keys:
-            "z" : Tensor[B x D x T]
-                Quantized continuous representation of input
-            "codes" : Tensor[B x N x T]
-                Codebook indices for each codebook
-                (quantized discrete representation of input)
-            "latents" : Tensor[B x N*D x T]
-                Projected latents (continuous representation of input before quantization)
-            "vq/commitment_loss" : Tensor[1]
-                Commitment loss to train encoder to predict vectors closer to codebook
-                entries
-            "vq/codebook_loss" : Tensor[1]
-                Codebook loss to update the codebook
-            "length" : int
-                Number of samples in input audio
-            "audio" : Tensor[B x 1 x length]
-                Decoded audio data.
-        """
         length = audio_data.shape[-1]
         audio_data = self.preprocess(audio_data, sample_rate)
         z, mu, log_var, kl_loss = self.encode(audio_data)
