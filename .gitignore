@@ -2,12 +2,13 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.txt
 # C extensions
 *.so
 *.npy
 *.wav
 *.flac
+vae_exp_large/*
 LibriTTS/*
 LibriSpeech/*
 # Distribution / packaging

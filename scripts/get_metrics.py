@@ -11,7 +11,7 @@ def main():
     data = pd.read_csv(f"{args.csv_path}/metrics.csv")
     
     # 计算每一列指标的均值（除去name列）
-    mean_values = data.drop(columns=['name']).mean()
+    mean_values = data.drop(columns=['name','truth',"hypo"]).mean()
     
     # 输出结果
     print("Mean values for each column (excluding 'name'):")

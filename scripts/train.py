@@ -17,6 +17,7 @@ from audiotools.ml.decorators import timer
 from audiotools.ml.decorators import Tracker
 from audiotools.ml.decorators import when
 from torch.utils.tensorboard import SummaryWriter
+import json
 
 import dac
 
@@ -38,7 +39,9 @@ def ExponentialLR(optimizer, gamma: float = 1.0):
 
 
 # Models
+params = argbind.parse_args()
 DAC = argbind.bind(dac.model.DAC)
+metainfo = {k.replace("DAC.", ""): v for k, v in params.items() if k.startswith("DAC.")}
 Discriminator = argbind.bind(dac.model.Discriminator)
 
 # Data
@@ -120,6 +123,18 @@ class State:
 
     tracker: Tracker
 
+def save_metainfo(save_path):
+    params = argbind.parse_args()
+    dac_params = {k.replace("DAC.", ""): v for k, v in params.items() if k.startswith("DAC.")}
+    disc_params = {k.replace("DAC.", ""): v for k, v in params.items() if k.startswith("Discriminator.")} 
+    metainfo = {
+        "DAC": dac_params,
+        "Discriminator": disc_params
+    }
+    with open( Path(save_path) / "metainfo.json", "w") as f:
+        json.dump(metainfo, f, ensure_ascii=False)
+        # json.dump(metainfo, f, indent=4, ensure_ascii=False)
+
 
 @argbind.bind(without_prefix=True)
 def load(
@@ -145,12 +160,10 @@ def load(
             generator, g_extra = DAC.load_from_folder(**kwargs)
         if (Path(kwargs["folder"]) / "discriminator").exists():
             discriminator, d_extra = Discriminator.load_from_folder(**kwargs)
-
+            
     generator = DAC() if generator is None else generator
     discriminator = Discriminator() if discriminator is None else discriminator
-    if accel.use_ddp:
-        generator = torch.nn.SyncBatchNorm.convert_sync_batchnorm(generator)
-        discriminator = torch.nn.SyncBatchNorm.convert_sync_batchnorm(discriminator)
+        
     tracker.print("="*50 + " Model Parameters " + "="*50)
     tracker.print(f"[Encoder] Parameters: {count_parameters(generator.encoder):,}")
     tracker.print(f"[Decoder] Parameters: {count_parameters(generator.decoder):,}")
@@ -296,8 +309,6 @@ def train_loop(state, batch, accel, lambdas):
 
 
 def checkpoint(state, save_iters, save_path):
-    metadata = {"logs": state.tracker.history}
-
     tags = ["latest"]
     state.tracker.print(f"Saving to {str(Path('.').absolute())}")
     if state.tracker.is_best("val", "mel/loss"):
@@ -311,9 +322,8 @@ def checkpoint(state, save_iters, save_path):
             "optimizer.pth": state.optimizer_g.state_dict(),
             "scheduler.pth": state.scheduler_g.state_dict(),
             "tracker.pth": state.tracker.state_dict(),
-            # "metadata.pth": metadata,
         }
-        accel.unwrap(state.generator).metadata = metadata
+        accel.unwrap(state.generator).metadata = metainfo
         accel.unwrap(state.generator).save_to_folder(
             f"{save_path}/{tag}", generator_extra,package=False
         )
@@ -324,6 +334,7 @@ def checkpoint(state, save_iters, save_path):
         accel.unwrap(state.discriminator).save_to_folder(
             f"{save_path}/{tag}", discriminator_extra,package=False
         )
+        save_metainfo(f"{save_path}/{tag}")
 
 
 @torch.no_grad()
