@@ -1,3 +1,5 @@
+# Save path
+save_path: /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/vae_exp_large/24khz_600x_8553_kl1e-3_vae64_klwarmup_6khrs_pre_post
 # Model setup
 DAC.sample_rate: 24000
 DAC.encoder_dim: 64
@@ -5,6 +7,8 @@ DAC.encoder_rates: [3, 5, 5, 8]
 DAC.decoder_dim: 1536
 DAC.decoder_rates: [8, 5, 5, 3]
 DAC.vae_dim: 64
+DAC.pre_vae_block: true
+DAC.post_vae_block: true
 
 # Discriminator
 Discriminator.sample_rate: 24000
@@ -26,21 +30,21 @@ ExponentialLR.gamma: 0.999996
 amp: false
 val_batch_size: 100
 device: cuda
-num_iters: 400001
-save_iters: [5000,10000, 25000, 50000,75000,100000,200000,300000, 400000]
+num_iters: 600001
+save_iters: [100000,200000,300000,400000,500000,600000]
 valid_freq: 1000
 sample_freq: 10000
 num_workers: 32
 val_idx: [0, 1, 2, 3, 4, 5, 6, 7]
 seed: 0
 use_kl_warmup: true
-kl_warmup_ratio: 0.6
-kl_start_weight: 0.00005
+kl_warmup_ratio: 0.4
+kl_start_weight: 0.00001
 lambdas:
   mel/loss: 15.0
   adv/feat_loss: 2.0
   adv/gen_loss: 1.0
-  vae/kl_loss: 0.01
+  vae/kl_loss: 0.001
 
 VolumeNorm.db: [const, -16]
 
@@ -66,8 +70,8 @@ MelSpectrogramLoss.clamp_eps: 1.0e-5
 MelSpectrogramLoss.mag_weight: 0.0
 
 # Data
-batch_size: 72
-train/AudioDataset.duration: 0.38
+batch_size: 80
+train/AudioDataset.duration: 0.5
 train/AudioDataset.n_examples: 10000000
 
 val/AudioDataset.duration: 5.0
@@ -87,6 +91,8 @@ train/build_dataset.folders:
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-100
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-360
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-other-500
+    - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriLight/vad/medium/
+    - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriLight/vad/small/
 
 val/build_dataset.folders:
   speech:

@@ -13,7 +13,13 @@ from dac.nn.layers import Snake1d
 from dac.nn.layers import WNConv1d
 from dac.nn.layers import WNConvTranspose1d
 from dac.nn.quantize import ResidualVectorQuantize
+from .bigvgan import BigVGAN
+import json
 
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
 
 def init_weights(m):
     if isinstance(m, nn.Conv1d):
@@ -171,8 +177,10 @@ class DAC(BaseModel, CodecMixin):
         decoder_rates: List[int] = [8, 8, 4, 2],
         vae_dim: Union[int, list] = 8,
         sample_rate: int = 44100,
+        decoder_type : str = "dac", # bigvgan | dac
         pre_vae_block: bool = False,
-        post_vae_block: bool = False
+        post_vae_block: bool = False,
+        bigvgan_conf: str = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/conf/bigvgan_conf/bigvgan_v2_24khz_100band_256x.json"
     ):
         super().__init__()
 
@@ -188,27 +196,39 @@ class DAC(BaseModel, CodecMixin):
         self.latent_dim = latent_dim
 
         self.hop_length = np.prod(encoder_rates)
+        self.sample_rate = sample_rate
         self.encoder = Encoder(encoder_dim, encoder_rates, latent_dim)
         self.vae_dim = vae_dim
-        if pre_vae_block:
+        self.pre_vae_block = pre_vae_block
+        self.post_vae_block = post_vae_block
+        
+        if self.pre_vae_block:
             self.pre_block = self._build_residual_blocks(latent_dim,self.vae_dim)
         else:
             self.pre_block = nn.Linear(latent_dim,self.vae_dim)
         self.fc_mu = nn.Linear(self.vae_dim, self.vae_dim)
         self.fc_var = nn.Linear(self.vae_dim, self.vae_dim)
         
-        if post_vae_block:
+        if self.post_vae_block:
             self.decoder_proj = self._build_residual_blocks(self.vae_dim,latent_dim)
         else:
             self.decoder_proj = nn.Linear(self.vae_dim,latent_dim)
         
-        self.decoder = Decoder(
-            latent_dim,
-            decoder_dim,
-            decoder_rates,
-        )
-        self.sample_rate = sample_rate
-        self.apply(init_weights)
+        self.decoder_type = decoder_type
+        if self.decoder_type == "dac":
+            self.decoder = Decoder(
+                latent_dim,
+                decoder_dim,
+                decoder_rates,
+            )
+            self.apply(init_weights)
+        elif self.decoder_type == "bigvgan":
+            self.bigvgan_conf = bigvgan_conf
+            with open(self.bigvgan_conf) as f:
+                data = f.read()
+            json_config = json.loads(data)
+            h = AttrDict(json_config)
+            self.decoder = BigVGAN(h)
 
         self.delay = self.get_delay()
 
@@ -270,13 +290,19 @@ class DAC(BaseModel, CodecMixin):
         log_var = self.fc_var(z)
         log_var = torch.clamp(log_var, min=-12, max=12) # log var可能会爆掉
         
-        z_hat = self.decoder_proj(self.reparameterize(mu,log_var)).transpose(1,2)
+        # z_hat = self.decoder_proj(self.reparameterize(mu,log_var)).transpose(1,2)
+        z_hat = self.reparameterize(mu,log_var)
         kl_loss = self.compute_kl_loss(mu,log_var)
         
         return z_hat, mu, log_var, kl_loss
 
     def decode(self, z: torch.Tensor):
-        return self.decoder(z)
+        if self.decoder_type == "dac":
+            z = self.decoder_proj(z).transpose(1,2) 
+            recon = self.decoder(z)
+        elif self.decoder_type == "bigvgan":
+            recon = self.decoder(z.transpose(1,2))   
+        return recon
 
     def forward(
         self,

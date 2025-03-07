@@ -26,8 +26,8 @@ ExponentialLR.gamma: 0.999996
 amp: false
 val_batch_size: 100
 device: cuda
-num_iters: 400001
-save_iters: [5000,10000, 25000, 50000,75000,100000,200000,300000, 400000]
+num_iters: 500001
+save_iters: [100000,200000,300000,400000,500000]
 valid_freq: 1000
 sample_freq: 10000
 num_workers: 32
@@ -67,7 +67,7 @@ MelSpectrogramLoss.mag_weight: 0.0
 
 # Data
 batch_size: 72
-train/AudioDataset.duration: 0.38
+train/AudioDataset.duration: 0.5
 train/AudioDataset.n_examples: 10000000
 
 val/AudioDataset.duration: 5.0
@@ -87,6 +87,8 @@ train/build_dataset.folders:
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-100
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-360
     - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-other-500
+    - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriLight/medium
+    - /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriLight/small
 
 val/build_dataset.folders:
   speech:

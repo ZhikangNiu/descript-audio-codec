@@ -4,7 +4,7 @@ DAC.encoder_dim: 64
 DAC.encoder_rates: [3, 5, 5, 8]
 DAC.decoder_dim: 1536
 DAC.decoder_rates: [8, 5, 5, 3]
-DAC.vae_dim: 64
+DAC.vae_dim: 48
 
 # Discriminator
 Discriminator.sample_rate: 24000
@@ -40,7 +40,7 @@ lambdas:
   mel/loss: 15.0
   adv/feat_loss: 2.0
   adv/gen_loss: 1.0
-  vae/kl_loss: 0.01
+  vae/kl_loss: 0.1
 
 VolumeNorm.db: [const, -16]
 
@@ -80,7 +80,6 @@ test/AudioDataset.n_examples: 1000
 
 AudioLoader.shuffle: true
 AudioDataset.without_replacement: true
-
 
 train/build_dataset.folders:
   speech:

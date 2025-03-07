@@ -4,7 +4,9 @@ DAC.encoder_dim: 64
 DAC.encoder_rates: [3, 5, 5, 8]
 DAC.decoder_dim: 1536
 DAC.decoder_rates: [8, 5, 5, 3]
-DAC.vae_dim: 64
+DAC.vae_dim: 32
+DAC.pre_vae_block: true
+DAC.post_vae_block: true
 
 # Discriminator
 Discriminator.sample_rate: 24000

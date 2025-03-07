@@ -5,6 +5,8 @@ DAC.encoder_rates: [3, 5, 5, 8]
 DAC.decoder_dim: 1536
 DAC.decoder_rates: [8, 5, 5, 3]
 DAC.vae_dim: 64
+DAC.pre_vae_block: true
+DAC.post_vae_block: true
 
 # Discriminator
 Discriminator.sample_rate: 24000
@@ -34,13 +36,13 @@ num_workers: 32
 val_idx: [0, 1, 2, 3, 4, 5, 6, 7]
 seed: 0
 use_kl_warmup: true
-kl_warmup_ratio: 0.6
+kl_warmup_ratio: 0.4
 kl_start_weight: 0.00005
 lambdas:
   mel/loss: 15.0
   adv/feat_loss: 2.0
   adv/gen_loss: 1.0
-  vae/kl_loss: 0.01
+  vae/kl_loss: 1.0
 
 VolumeNorm.db: [const, -16]
 

@@ -27,20 +27,20 @@ amp: false
 val_batch_size: 100
 device: cuda
 num_iters: 400001
-save_iters: [5000,10000, 25000, 50000,75000,100000,200000,300000, 400000]
+save_iters: [5000,10000, 25000, 50000,75000,100000,200000,300000, 400001]
 valid_freq: 1000
 sample_freq: 10000
 num_workers: 32
 val_idx: [0, 1, 2, 3, 4, 5, 6, 7]
 seed: 0
 use_kl_warmup: true
-kl_warmup_ratio: 0.6
+kl_warmup_ratio: 0.75
 kl_start_weight: 0.00005
 lambdas:
   mel/loss: 15.0
   adv/feat_loss: 2.0
   adv/gen_loss: 1.0
-  vae/kl_loss: 0.01
+  vae/kl_loss: 0.25
 
 VolumeNorm.db: [const, -16]
 
