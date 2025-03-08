@@ -1,5 +1,5 @@
 # Save path
-save_path: /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/vae_exp_large/24khz_600x_8553_kl1e-3_vae64_klwarmup_6khrs_no_pre_post
+save_path: /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/vae_exp_large/24khz_600x_8553_kl1e-3_vae64_klwarmup_6khrs_bigvgan
 # Model setup
 DAC.sample_rate: 24000
 DAC.encoder_dim: 64
@@ -69,7 +69,7 @@ MelSpectrogramLoss.clamp_eps: 1.0e-5
 MelSpectrogramLoss.mag_weight: 0.0
 
 # Data
-batch_size: 24
+batch_size: 80
 train/AudioDataset.duration: 0.5
 train/AudioDataset.n_examples: 10000000
 

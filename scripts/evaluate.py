@@ -54,6 +54,19 @@ def get_sim_score(wav1,wav2,model):
     sim = F.cosine_similarity(emb1, emb2)[0].item()
     return sim
 
+def clean_text(text):
+    # 1. 将所有非字母数字和非空格字符替换为空格
+    cleaned = []
+    for c in text:
+        if c.isalnum() or c.isspace():
+            cleaned.append(c)
+        else:
+            cleaned.append(' ')  # 将特殊字符替换为空格
+    # 2. 合并连续空格并去除首尾空格
+    cleaned = ''.join(cleaned)
+    return ' '.join(cleaned.split())
+
+
 def get_wer_score(gen_wav,truth,asr_model,lang):
     if lang == "zh":
         res = asr_model.generate(input=gen_wav, batch_size_s=300, disable_pbar=True)
@@ -70,7 +83,6 @@ def get_wer_score(gen_wav,truth,asr_model,lang):
     for p in punctuation_all:
         truth = truth.replace(p, "")
         hypo = hypo.replace(p, "")
-
     truth = truth.replace("  ", " ")
     hypo = hypo.replace("  ", " ")
 
@@ -80,8 +92,8 @@ def get_wer_score(gen_wav,truth,asr_model,lang):
         hypo = " ".join(list(hypo))
     elif lang == "en":
         # 英文转小写
-        truth = truth.lower()
-        hypo = hypo.lower().lstrip()
+        truth = clean_text(truth).lower()
+        hypo = clean_text(hypo).lower().lstrip()
 
     measures = compute_measures(truth, hypo)
     wer = measures["wer"]

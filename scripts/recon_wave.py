@@ -47,8 +47,8 @@ def process(signal, generator, **kwargs):
 
 @torch.no_grad()
 def recon_wav_from_latent(latent_data,generator):
-    data = torch.from_numpy(latent_data).cuda()
-    z_hat = generator.decoder_proj(data.transpose(1,2))
+    z_hat = torch.from_numpy(latent_data).cuda()
+   
     final_result = generator.decode(z_hat.transpose(1,2))
     return final_result
 
