@@ -163,17 +163,18 @@ def load(
             
     generator = DAC() if generator is None else generator
     discriminator = Discriminator() if discriminator is None else discriminator
-        
-    tracker.print("="*50 + " Model Parameters " + "="*50)
+    
     tracker.print(f"[Encoder] Parameters: {count_parameters(generator.encoder):,}")
     tracker.print(f"[Decoder] Parameters: {count_parameters(generator.decoder):,}")
     tracker.print(f"[Total] Parameters: {count_parameters(generator):,}")
-    tracker.print("="*100 + "\n")
     tracker.print(generator)
     tracker.print(discriminator)
 
-    generator = accel.prepare_model(generator)
-    discriminator = accel.prepare_model(discriminator)
+    generator = accel.prepare_model(generator,find_unused_parameters=True)
+    discriminator = accel.prepare_model(discriminator,find_unused_parameters=True)
+    for name, param in generator.named_parameters():
+        if not param.requires_grad:
+            tracker.print(f"Unused parameter in generator: {name}")
 
     with argbind.scope(args, "generator"):
         optimizer_g = AdamW(generator.parameters(), use_zero=accel.use_ddp)
@@ -203,7 +204,6 @@ def load(
                 tracker.print(f"  Subset {i+1}: {len(ds)} samples")
     with argbind.scope(args, "val"):
         val_data = build_dataset(sample_rate)
-        # 新增验证集信息打印
         tracker.print(f"[Val Dataset] Total samples: {len(val_data)}")
         if hasattr(val_data, 'datasets'):
             for i, ds in enumerate(val_data.datasets):
@@ -382,13 +382,13 @@ def kl_warmup_func(
     current_step: int
 ) -> float:
     if current_step >= total_warmup_steps:
-        return kl_end_weight  # 热身结束后保持目标值
+        return kl_end_weight 
     
     warmup_freq = int(total_warmup_steps / 4)
-    stage = min(current_step // warmup_freq, 3)  # 限制最多4个阶段（0-3）
+    stage = min(current_step // warmup_freq, 3) 
     update_kl = (kl_end_weight - kl_start_weight) / 4
     current_weight = kl_start_weight + (stage + 1) * update_kl
-    return min(current_weight, kl_end_weight)  # 确保不超过目标值
+    return min(current_weight, kl_end_weight) 
 
 @argbind.bind(without_prefix=True)
 def train(
