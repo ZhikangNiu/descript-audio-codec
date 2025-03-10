@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import json
 import argbind
 import torch
 from audiotools import AudioSignal
@@ -12,6 +12,11 @@ from dac.compare.encodec import Encodec
 
 Encodec = argbind.bind(Encodec)
 
+def read_json_file(metainfo_path):
+    with open(metainfo_path,"r") as f:
+        data = json.load(f)
+    return data
+        
 
 def load_state(
     accel: Accelerator,
@@ -30,7 +35,18 @@ def load_state(
     tracker.print(f"Resuming from {str(Path('.').absolute())}/{kwargs['folder']}")
 
     if model_type == "dac":
-        generator, _ = DAC.load_from_folder(**kwargs)
+        ckpt_path = Path(kwargs["folder"]) / "dac" / "weights.pth"
+        model_dict = torch.load(ckpt_path,map_location=kwargs["map_location"])
+        try:
+            metainfo_path = Path(kwargs["folder"]) / "metainfo.json"
+            metainfo = read_json_file(metainfo_path)
+            metadata = metainfo["DAC"]
+        except FileNotFoundError:
+            metadata = model_dict["metadata"]["kwargs"]
+        generator = DAC(**metadata)
+        print(generator)
+        generator.load_state_dict(model_dict["state_dict"], strict=True)
+        generator.eval()
     elif model_type == "encodec":
         generator = Encodec(bandwidth=bandwidth)
 
@@ -79,6 +95,8 @@ def get_samples(
 
     with tracker.live:
         for i in range(len(audio_files)):
+            if Path(output / audio_files[i].name).exists():
+                continue
             signal = AudioSignal(audio_files[i])
             recons = process(signal, accel, generator)
             recons.write(output / audio_files[i].name)
