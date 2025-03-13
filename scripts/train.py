@@ -102,7 +102,6 @@ def build_dataset(
     dataset.transform = transform
     return dataset
 
-
 @dataclass
 class State:
     generator: DAC
@@ -126,7 +125,7 @@ class State:
 def save_metainfo(save_path):
     params = argbind.parse_args()
     dac_params = {k.replace("DAC.", ""): v for k, v in params.items() if k.startswith("DAC.")}
-    disc_params = {k.replace("DAC.", ""): v for k, v in params.items() if k.startswith("Discriminator.")} 
+    disc_params = {k.replace("Discriminator.", ""): v for k, v in params.items() if k.startswith("Discriminator.")} 
     metainfo = {
         "DAC": dac_params,
         "Discriminator": disc_params
@@ -135,6 +134,10 @@ def save_metainfo(save_path):
         json.dump(metainfo, f, ensure_ascii=False)
         # json.dump(metainfo, f, indent=4, ensure_ascii=False)
 
+def read_json_file(metainfo_path):
+    with open(metainfo_path,"r") as f:
+        data = json.load(f)
+    return data
 
 @argbind.bind(without_prefix=True)
 def load(
@@ -146,21 +149,25 @@ def load(
     tag: str = "latest",
     load_weights: bool = False,
 ):
-    generator, g_extra = None, {}
-    discriminator, d_extra = None, {}
+    generator = None
+    discriminator = None
 
     if resume:
-        kwargs = {
-            "folder": f"{save_path}/{tag}",
-            "map_location": "cpu",
-            "package": not load_weights,
-        }
-        tracker.print(f"Resuming from {str(Path('.').absolute())}/{kwargs['folder']}")
-        if (Path(kwargs["folder"]) / "dac").exists():
-            generator, g_extra = DAC.load_from_folder(**kwargs)
-        if (Path(kwargs["folder"]) / "discriminator").exists():
-            discriminator, d_extra = Discriminator.load_from_folder(**kwargs)
-            
+        ckpt_folder = Path(f"{save_path}/{tag}")
+        generator_ckpt = ckpt_folder / "dac" / "weights.pth"
+        generator_dict = torch.load(generator_ckpt ,map_location="cpu")["state_dict"]
+        discriminator_ckpt = ckpt_folder / "discriminator" / "weights.pth"
+        discriminator_dict = torch.load(discriminator_ckpt,map_location="cpu")["state_dict"]
+        metainfo_path = ckpt_folder / "metainfo.json"
+        metainfo = read_json_file(metainfo_path)
+        
+        generator = DAC(**metainfo["DAC"])
+        generator.load_state_dict(generator_dict,strict=True)
+        discriminator = Discriminator(**metainfo["Discriminator"])
+        discriminator.load_state_dict(discriminator_dict,strict=True)
+        
+        tracker.print(f"Resuming from {ckpt_folder}")
+
     generator = DAC() if generator is None else generator
     discriminator = Discriminator() if discriminator is None else discriminator
     
@@ -183,17 +190,26 @@ def load(
         optimizer_d = AdamW(discriminator.parameters(), use_zero=accel.use_ddp)
         scheduler_d = ExponentialLR(optimizer_d)
 
-    if "optimizer.pth" in g_extra:
-        optimizer_g.load_state_dict(g_extra["optimizer.pth"])
-    if "scheduler.pth" in g_extra:
-        scheduler_g.load_state_dict(g_extra["scheduler.pth"])
-    if "tracker.pth" in g_extra:
-        tracker.load_state_dict(g_extra["tracker.pth"])
-
-    if "optimizer.pth" in d_extra:
-        optimizer_d.load_state_dict(d_extra["optimizer.pth"])
-    if "scheduler.pth" in d_extra:
-        scheduler_d.load_state_dict(d_extra["scheduler.pth"])
+    if resume: 
+        optimizer_g_path = ckpt_folder /  "dac" / "optimizer.pth"
+        optimizer_g.load_state_dict(torch.load(optimizer_g_path,map_location="cpu"))
+        tracker.print(f"Resume load optimizer_g from {optimizer_g_path}")
+        
+        scheduler_g_path = ckpt_folder /  "dac" / "scheduler.pth"
+        scheduler_g.load_state_dict(torch.load(scheduler_g_path,map_location="cpu"))
+        tracker.print(f"Resume load scheduler_g from {scheduler_g_path}")
+        
+        tracker_path = ckpt_folder /  "dac" / "tracker.pth"
+        tracker.load_state_dict(torch.load(tracker_path,map_location="cpu"))
+        tracker.print(f"Resume load tracker from {tracker_path}")
+        
+        optimizer_d_path = ckpt_folder /  "discriminator" / "optimizer.pth"
+        optimizer_d.load_state_dict(torch.load(optimizer_d_path,map_location="cpu"))
+        tracker.print(f"Resume load optimizer_d from {optimizer_d_path}")
+        
+        scheduler_d_path = ckpt_folder /  "discriminator" / "scheduler.pth"
+        scheduler_d.load_state_dict(torch.load(scheduler_d_path,map_location="cpu"))
+        tracker.print(f"Resume load scheduler_d from {scheduler_d_path}")
 
     sample_rate = accel.unwrap(generator).sample_rate
     with argbind.scope(args, "train"):
@@ -454,7 +470,7 @@ def train(
     save_samples = when(lambda: accel.local_rank == 0)(save_samples)
     checkpoint = when(lambda: accel.local_rank == 0)(checkpoint)
     
-    if use_kl_warmup:
+    if not args["resume"] and use_kl_warmup:
         total_warmup_steps = int(num_iters * kl_warmup_ratio)
         kl_end_weight = lambdas["vae/kl_loss"]
         state.tracker.print(f"KL start weight: {kl_start_weight}")
