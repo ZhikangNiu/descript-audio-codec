@@ -12,5 +12,6 @@ audiotools.ml.BaseModel.EXTERN += ["einops"]
 from . import nn
 from . import model
 from . import utils
+from . import data
 from .model import DAC
 from .model import DACFile

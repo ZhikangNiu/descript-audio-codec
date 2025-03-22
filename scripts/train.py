@@ -10,9 +10,9 @@ from audiotools import AudioSignal
 from audiotools import ml
 from audiotools.core import util
 from audiotools.data import transforms
-from audiotools.data.datasets import AudioDataset
-from audiotools.data.datasets import AudioLoader
-from audiotools.data.datasets import ConcatDataset
+# from audiotools.data.datasets import AudioDataset
+# from audiotools.data.datasets import AudioLoader
+# from audiotools.data.datasets import ConcatDataset
 from audiotools.ml.decorators import timer
 from audiotools.ml.decorators import Tracker
 from audiotools.ml.decorators import when
@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 import json
 
 import dac
-
+from dac.data.datasets import AudioDataset, AudioLoader,ConcatDataset
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Enable cudnn autotuner to speed up training
@@ -59,7 +59,6 @@ tfm = argbind.bind_module(transforms, "train", "val", filter_fn=filter_fn)
 # Loss
 filter_fn = lambda fn: hasattr(fn, "forward") and "Loss" in fn.__name__
 losses = argbind.bind_module(dac.nn.loss, filter_fn=filter_fn)
-
 
 def get_infinite_loader(dataloader):
     while True:
