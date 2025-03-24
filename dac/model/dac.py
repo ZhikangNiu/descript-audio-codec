@@ -13,8 +13,14 @@ from dac.nn.layers import Snake1d
 from dac.nn.layers import WNConv1d
 from dac.nn.layers import WNConvTranspose1d
 from dac.nn.quantize import ResidualVectorQuantize
+from dac.model.utils import make_pad_mask
 from .bigvgan import BigVGAN
+from .regulator import InterpolateRegulator
 import json
+import torch.nn.functional as F
+
+def masked_mean(x, mask):
+    return (x * mask).sum() / mask.sum()
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
@@ -177,6 +183,8 @@ class DAC(BaseModel, CodecMixin):
         decoder_rates: List[int] = [8, 8, 4, 2],
         vae_dim: Union[int, list] = 8,
         sample_rate: int = 44100,
+        distill: bool = False,
+        distill_hidden_dim: int = 1024,
         decoder_type : str = "dac", # bigvgan | dac
         pre_vae_block: bool = False,
         post_vae_block: bool = False,
@@ -229,6 +237,11 @@ class DAC(BaseModel, CodecMixin):
             json_config = json.loads(data)
             h = AttrDict(json_config)
             self.decoder = BigVGAN(h)
+
+        self.distill = distill
+        self.distill_hidden_dim = distill_hidden_dim
+        proj_dim = self.distill_hidden_dim * 2
+        self.projectors = InterpolateRegulator([0,1], self.vae_dim,proj_dim,self.distill_hidden_dim)
 
         self.delay = self.get_delay()
 
@@ -306,13 +319,32 @@ class DAC(BaseModel, CodecMixin):
 
     def forward(
         self,
-        audio_data: torch.Tensor,
+        audio_data: torch.Tensor, # B, 1, T (duration)
         sample_rate: int = None,
+        guidance: torch.Tensor = None # B, T, D
     ):
         length = audio_data.shape[-1]
         audio_data = self.preprocess(audio_data, sample_rate)
         z, mu, log_var, kl_loss = self.encode(audio_data)
-
+        proj_loss = 0.
+        if self.distill and self.training:
+            guidance_lengths = [g.shape[0] for g in guidance]
+            z_lens = [zi.shape[0] for zi in z]
+            target_lengths = torch.tensor(guidance_lengths, device=z.device)
+            z_lengths = torch.tensor(z_lens, device = z.device)
+            z_mask = make_pad_mask(z_lengths, max_len=torch.max(target_lengths)) # 16 150, padding的部分是1
+            
+            proj_z, olens = self.projectors(z, z_lengths, target_lengths)
+            bsz = proj_z.shape[0]
+            for i, (pi, gi) in enumerate(zip(proj_z,guidance)):
+                cos_sim = F.cosine_similarity(
+                    pi, # 16, 150, 1024
+                    gi, # 16, 150, 1024
+                    dim = -1
+                )
+                proj_loss += masked_mean(-cos_sim, ~z_mask[i])
+            proj_loss = proj_loss / bsz
+            
         x = self.decode(z)
         return {
             "audio": x[..., :length],
@@ -320,6 +352,7 @@ class DAC(BaseModel, CodecMixin):
             "mu": mu,
             "log_var": log_var,
             "vae/kl_loss": kl_loss,
+            "vae/proj_loss": proj_loss
         }
 
 

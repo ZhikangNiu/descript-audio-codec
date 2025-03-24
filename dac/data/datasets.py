@@ -3,7 +3,8 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Union
-
+import torch
+import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
@@ -48,6 +49,7 @@ class AudioLoader:
         ext: List[str] = util.AUDIO_EXTENSIONS,
         shuffle: bool = True,
         shuffle_state: int = 0,
+        guidance_frame_rate: int = 50, # SSL feature frame rate
     ):
         self.audio_lists = util.read_sources(
             sources, relative_path=relative_path, ext=ext
@@ -65,6 +67,7 @@ class AudioLoader:
         self.sources = sources
         self.weights = weights
         self.transform = transform
+        self.guidance_frame_rate = guidance_frame_rate
 
     def __call__(
         self,
@@ -77,6 +80,7 @@ class AudioLoader:
         source_idx: int = None,
         item_idx: int = None,
         global_idx: int = None,
+        guidance_path: str = None
     ):
         if source_idx is not None and item_idx is not None:
             try:
@@ -94,6 +98,12 @@ class AudioLoader:
             )
 
         path = audio_info["path"]
+        relative_path = Path(path).relative_to(self.sources[source_idx]).with_suffix(".npy")
+        if guidance_path is not None:
+            guidance_real_path = guidance_path[source_idx] / relative_path
+            guidance = torch.from_numpy(np.load(guidance_real_path))
+        else:
+            guidance = torch.zeros(120,1024)
         signal = AudioSignal.zeros(duration, sample_rate, num_channels)
 
         if path != "none":
@@ -103,7 +113,7 @@ class AudioLoader:
                     duration=duration,
                     state=state,
                     loudness_cutoff=loudness_cutoff,
-                )
+                ) #会返回offset
             else:
                 signal = AudioSignal(
                     path,
@@ -114,15 +124,30 @@ class AudioLoader:
         if num_channels == 1:
             signal = signal.to_mono()
         signal = signal.resample(sample_rate)
-
+        
+        offset_seconds = signal.metadata["offset"]
+        start_frame = int(offset_seconds * self.guidance_frame_rate)
+        end_frame = int(start_frame + duration * self.guidance_frame_rate)
+        guidance = guidance[start_frame:end_frame,:] # guidance shape [T, D], hubert large dim = 1024
+        
         if signal.duration < duration:
             signal = signal.zero_pad_to(int(duration * sample_rate))
 
+        padding_length = int(duration) * self.guidance_frame_rate - guidance.shape[0]
+        guidance = F.pad(
+            guidance,
+            (0, 0, 0, padding_length),
+            value = 0
+        )
+        
         for k, v in audio_info.items():
             signal.metadata[k] = v
 
+        # TODO:
+        # 大于的部分如何处理处理这个guidance的索引
         item = {
             "signal": signal,
+            "guidance": guidance,
             "source_idx": source_idx,
             "item_idx": item_idx,
             "source": str(self.sources[source_idx]),
@@ -367,6 +392,7 @@ class AudioDataset:
         shuffle_loaders: bool = False,
         matcher: Callable = default_matcher,
         without_replacement: bool = True,
+        guidance_path: List = None
     ):
         # Internally we convert loaders to a dictionary
         if isinstance(loaders, list):
@@ -386,6 +412,7 @@ class AudioDataset:
         self.aligned = aligned
         self.shuffle_loaders = shuffle_loaders
         self.without_replacement = without_replacement
+        self.guidance_path = guidance_path
 
         if aligned:
             loaders_list = list(loaders.values())
@@ -405,6 +432,7 @@ class AudioDataset:
 
         loader_kwargs = {
             "state": state,
+            "guidance_path": self.guidance_path,
             "sample_rate": self.sample_rate,
             "duration": self.duration,
             "loudness_cutoff": self.loudness_cutoff,

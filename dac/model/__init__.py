@@ -5,3 +5,4 @@ from .discriminator import Discriminator
 from .utils import *
 from .bigvgan import *
 from .activations import *
+from .regulator import *

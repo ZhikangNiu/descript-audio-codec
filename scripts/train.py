@@ -10,9 +10,6 @@ from audiotools import AudioSignal
 from audiotools import ml
 from audiotools.core import util
 from audiotools.data import transforms
-# from audiotools.data.datasets import AudioDataset
-# from audiotools.data.datasets import AudioLoader
-# from audiotools.data.datasets import ConcatDataset
 from audiotools.ml.decorators import timer
 from audiotools.ml.decorators import Tracker
 from audiotools.ml.decorators import when
@@ -279,9 +276,10 @@ def train_loop(state, batch, accel, lambdas):
         )
 
     with accel.autocast():
-        out = state.generator(signal.audio_data, signal.sample_rate)
+        out = state.generator(signal.audio_data, signal.sample_rate,batch["guidance"])
         recons = AudioSignal(out["audio"], signal.sample_rate)
         kl_loss = out["vae/kl_loss"]
+        proj_loss = out["vae/proj_loss"]
 
     with accel.autocast():
         output["adv/disc_loss"] = state.gan_loss.discriminator_loss(recons, signal)
@@ -305,6 +303,7 @@ def train_loop(state, batch, accel, lambdas):
         ) = state.gan_loss.generator_loss(recons, signal)
         
         output["vae/kl_loss"] = kl_loss
+        output["vae/proj_loss"] = proj_loss
         output["loss"] = sum([v * output[k] for k, v in lambdas.items() if k in output])
 
     state.optimizer_g.zero_grad()
