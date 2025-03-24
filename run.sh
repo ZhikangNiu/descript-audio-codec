@@ -1,10 +1,18 @@
-export CUDA_VISIBLE_DEVICES=0,1
 export OMP_NUM_THREADS=1
-# torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz.yml --save_path runs/2gpu/320x_vae_dim32_grad10/
-# torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_320x_kl5e-6.yml --save_path runs/2gpu/320x_vae_dim32_grad10_kl5e-6/
-# torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_1600x_kl5e-5.yml --save_path runs/2gpu/1600x_vae_dim32_grad10_kl5e-5/
-# torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_800x_8544_kl5e-5.yml --save_path runs/2gpu/800x_8544_vae_dim32_grad10_kl5e-5/
-# torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl5e-5_vae128.yml --save_path runs/2gpu/24khz_1600x_kl5e-5_vae128_clamp_logvar/
-# torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl5e-4_vae128.yml --save_path runs/2gpu/24khz_1600x_kl5e-4_vae128/ 
-# torchrun --nproc_per_node 2 scripts/train.py --args.load conf/vae/24khz_1600x_kl1e-2_vae64.yml --save_path runs/2gpu/24khz_1600x_kl1e-2_vae64
-torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py --args.load conf/vae/24khz_800x_8544_kl1e-1_vae32.yaml --save_path runs/2gpu/24khz_800x_8544_kl1e-1_vae32_clamp_logvar/
+
+DEBUG_MODE=true
+EXP_NAME=$1
+CONF_DIR=conf/vae
+OUTPUT_DIR=ckpt/
+
+if [ $DEBUG_MODE = true ]; then
+    export CUDA_VISIBLE_DEVICES=0
+    python scripts/train.py --args.load $CONF_DIR/$EXP_NAME --save_path $OUTPUT_DIR/DEBUG/$EXP_NAME
+else
+    export CUDA_VISIBLE_DEVICES=0,1,2,3
+    if [ -z "$PET_NPROC_PER_NODE" ]; then
+        PET_NPROC_PER_NODE=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
+    fi
+    torchrun --nproc_per_node $PET_NPROC_PER_NODE scripts/train.py \
+    --args.load $CONF_DIR/$EXP_NAME
+fi
