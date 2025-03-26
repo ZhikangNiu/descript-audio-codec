@@ -119,13 +119,17 @@ def get_metrics(signal_path, recons_path, state,asr_model,sim_model,lang):
     with open(truth_text_path,"r") as f:
         truth = f.readline().strip()
     wer_score,truth,hypo = get_wer_score(recons_path,truth,asr_model=asr_model,lang=lang)
+    try:
+        pesq_score = metrics.quality.pesq(x,y)
+    except:
+        pesq_score = 0
     output.update(
         {
             f"mel-{k}": state.mel_loss(x, y),
             f"stft-{k}": state.stft_loss(x, y),
             f"waveform-{k}": state.waveform_loss(x, y),
             f"sisdr-{k}": state.sisdr_loss(x, y),
-            f"pseq-{k}" : metrics.quality.pesq(x,y),
+            f"pseq-{k}" : pesq_score,
             f"stoi-{k}" : metrics.quality.stoi(x,y),
             f"sim-{k}": sim_score,
             f"wer-{k}": wer_score,

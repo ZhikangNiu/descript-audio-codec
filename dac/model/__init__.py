@@ -6,3 +6,4 @@ from .utils import *
 from .bigvgan import *
 from .activations import *
 from .regulator import *
+from .attn_proj import *

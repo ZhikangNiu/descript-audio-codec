@@ -57,6 +57,8 @@ def load_state(
 @torch.no_grad()
 def process(signal, accel, generator, **kwargs):
     signal = signal.to(accel.device)
+    if signal.sample_rate != generator.sample_rate:
+        signal.resample(generator.sample_rate)
     recons = generator(signal.audio_data, signal.sample_rate, **kwargs)["audio"]
     recons = AudioSignal(recons, signal.sample_rate)
     recons = recons.normalize(signal.loudness())

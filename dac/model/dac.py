@@ -16,6 +16,7 @@ from dac.nn.quantize import ResidualVectorQuantize
 from dac.model.utils import make_pad_mask
 from .bigvgan import BigVGAN
 from .regulator import InterpolateRegulator
+from .attn_proj import AttnProjection
 import json
 import torch.nn.functional as F
 
@@ -187,6 +188,7 @@ class DAC(BaseModel, CodecMixin):
         distill_hidden_dim: int = 1024,
         decoder_type : str = "dac", # bigvgan | dac
         pre_vae_block: bool = False,
+        attn_proj: bool = False,
         post_vae_block: bool = False,
         bigvgan_conf: str = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/conf/bigvgan_conf/bigvgan_v2_24khz_100band_256x.json"
     ):
@@ -207,11 +209,15 @@ class DAC(BaseModel, CodecMixin):
         self.sample_rate = sample_rate
         self.encoder = Encoder(encoder_dim, encoder_rates, latent_dim)
         self.vae_dim = vae_dim
+        self.attn_proj = attn_proj
         self.pre_vae_block = pre_vae_block
         self.post_vae_block = post_vae_block
         
         if self.pre_vae_block:
             self.pre_block = self._build_residual_blocks(latent_dim,self.vae_dim)
+        elif self.attn_proj:
+            # in_dim, out_dim, num_heads, norm_layer=nn.LayerNorm, mlp_ratio=2
+            self.pre_block = AttnProjection(latent_dim,self.vae_dim,num_heads=8)
         else:
             self.pre_block = nn.Linear(latent_dim,self.vae_dim)
         self.fc_mu = nn.Linear(self.vae_dim, self.vae_dim)
@@ -219,6 +225,8 @@ class DAC(BaseModel, CodecMixin):
         
         if self.post_vae_block:
             self.decoder_proj = self._build_residual_blocks(self.vae_dim,latent_dim)
+        elif self.attn_proj:
+            self.decoder_proj = AttnProjection(self.vae_dim,latent_dim,8)
         else:
             self.decoder_proj = nn.Linear(self.vae_dim,latent_dim)
         

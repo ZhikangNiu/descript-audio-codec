@@ -5,6 +5,7 @@
 import argparse
 import torch
 from tqdm import tqdm
+from pathlib import Path
 import logging
 import math
 import os
@@ -152,9 +153,7 @@ def main(tsv_dir, split, feat_dir, batch_size=8):
             vaild_embed_length = compute_output_length(valid_length, semantic_model.feature_extractor.conv_layers)
             single_embedding = batch_embedding[i, :vaild_embed_length, :]  # [valid_length, D]
             name = os.path.splitext(os.path.join(*(path.split("/")[-4:])))[0]
-            feat_path = Path(f"{feat_dir}/{name}.npy")
-            if feat_path.exists():
-                continue
+            feat_path = f"{feat_dir}/{name}.npy"
             os.makedirs(os.path.dirname(feat_path), exist_ok=True)
             if os.path.exists(feat_path):
                 continue
