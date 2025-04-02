@@ -38,8 +38,9 @@ def load_state(
 @torch.no_grad()
 def process(signal, generator, **kwargs):
     data = signal.audio_data.cuda()
-    sr = signal.sample_rate
-    audio_data = generator.preprocess(data,sr)
+    if signal.sample_rate != generator.sample_rate:
+        signal.resample(generator.sample_rate)
+    audio_data = generator.preprocess(data,signal.sample_rate)
     latent, mu, log_var, kl_loss = generator.encode(audio_data)
     pre_proj_latent = generator.reparameterize(mu,log_var)
     return pre_proj_latent.transpose(1,2).cpu().numpy()

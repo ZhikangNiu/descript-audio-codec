@@ -120,9 +120,12 @@ def get_metrics(signal_path, recons_path, state,asr_model,sim_model,lang):
         truth = f.readline().strip()
     wer_score,truth,hypo = get_wer_score(recons_path,truth,asr_model=asr_model,lang=lang)
     try:
-        pesq_score = metrics.quality.pesq(x,y)
-    except:
+        pesq_score = metrics.quality.pesq(x, y)
+        print(pesq_score)
+    except Exception as e:
+        print(f"[PESQ Error] {e}")
         pesq_score = 0
+
     output.update(
         {
             f"mel-{k}": state.mel_loss(x, y),
@@ -138,6 +141,7 @@ def get_metrics(signal_path, recons_path, state,asr_model,sim_model,lang):
             # f"visqol-speech-{k}": metrics.quality.visqol(x, y, "speech"),
         }
     )
+    print(output)
     # output.update(signal.metadata)
     return output
 
