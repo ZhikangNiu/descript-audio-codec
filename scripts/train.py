@@ -174,7 +174,7 @@ def load(
     tracker.print(discriminator)
 
     generator = accel.prepare_model(generator,find_unused_parameters=True)
-    discriminator = accel.prepare_model(discriminator,find_unused_parameters=True)
+    discriminator = accel.prepare_model(discriminator,find_unused_parameters=True,broadcast_buffers=False)
     for name, param in generator.named_parameters():
         if not param.requires_grad:
             tracker.print(f"Unused parameter in generator: {name}")
