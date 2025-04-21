@@ -1,4 +1,18 @@
-# best
-python scripts/get_latent.py --path /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/runs/2gpu/24khz_800x_8544_kl1e-2_vae128_clamp_logvar --input /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-100 --output /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/LibriTTS/24khz_800x_8544_kl1e-2_vae32_clamp_logvar/30hz_feat/train-clean-100
-python scripts/get_latent.py --path /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/runs/2gpu/24khz_800x_8544_kl1e-2_vae128_clamp_logvar --input /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-clean-360 --output /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/LibriTTS/24khz_800x_8544_kl1e-2_vae32_clamp_logvar/30hz_feat/train-clean-360
-python scripts/get_latent.py --path /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/runs/2gpu/24khz_800x_8544_kl1e-2_vae128_clamp_logvar --input /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS/train-other-500 --output /inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/LibriTTS/24khz_800x_8544_kl1e-2_vae32_clamp_logvar/30hz_feat/train-other-500
+#!/bin/bash
+
+exp=$1
+
+output_base=ldm_features/${exp}/
+lt_root=/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriTTS
+ls_root=/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/public/public_datas/speech/LibriSpeech
+tag=600k
+
+for name in train-clean-100 train-clean-360 train-other-500; do
+  python scripts/get_latent.py \
+    --path "ckpts/svae/${exp}" \
+    --input "$input_base/$name" \
+    --output "$output_base/LibriTTS/$name" \
+    --model_tag $tag
+done
+
+python scripts/get_latent.py --path "ckpts/svae/${exp}" --input ${ls_root}/test-clean --output "$output_base/LibriSpeech/test-clean" --model_tag $tag
