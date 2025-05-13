@@ -1,7 +1,7 @@
 import math
 from typing import List
 from typing import Union
-
+import logging
 import numpy as np
 import torch
 from audiotools import AudioSignal
@@ -12,13 +12,15 @@ from .base import CodecMixin
 from dac.nn.layers import Snake1d
 from dac.nn.layers import WNConv1d
 from dac.nn.layers import WNConvTranspose1d
-from dac.nn.quantize import ResidualVectorQuantize
 from dac.model.utils import make_pad_mask
 from .bigvgan import BigVGAN
+from .vocos import VocosDecoder
 from .regulator import InterpolateRegulator
 from .attn_proj import AttnProjection
 import json
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
 
 def masked_mean(x, mask):
     return (x * mask).sum() / mask.sum()
@@ -190,10 +192,21 @@ class DAC(BaseModel, CodecMixin):
         pre_vae_block: bool = False,
         attn_proj: bool = False,
         post_vae_block: bool = False,
-        bigvgan_conf: str = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/conf/bigvgan_conf/bigvgan_v2_24khz_100band_256x.json"
+        bigvgan_conf: str = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/niuzhikang-240108120093/descript-audio-codec/conf/bigvgan_conf/bigvgan_v2_24khz_100band_256x.json",
+        align_space="ssl", # ssl means up vae feature -> ssl feature | vae means ssl feature -> vae feature
+        sampling_ratios=[0,1],
+        distill_loss_dim = -1,
+        masked_mean = True,
     ):
         super().__init__()
-
+        logger.info(
+            f"encoder_dim: {encoder_dim} | encoder rates: {encoder_rates} | latent_dim: {latent_dim}",
+            f"decoder_dim: {decoder_dim} | decoder rates: {decoder_rates} | decoder type :{decoder_type} | vae_dim: {vae_dim}",
+            f"sample rate: {sample_rate} | distill: {distill} | distill_hidden_dim:{distill_hidden_dim}",
+            f"pre_vae_block: {pre_vae_block} | attn_proj: {attn_proj} | post_vae_block:{post_vae_block}",
+            f"bigvgan conf: {bigvgan_conf}"
+            f"align_space: {align_space} | sampling_ratios: {sampling_ratios} | distill_loss_dim: {distill_loss_dim} -1 means T avg, 0 means dim"
+        )
         self.encoder_dim = encoder_dim
         self.encoder_rates = encoder_rates
         self.decoder_dim = decoder_dim
@@ -245,12 +258,27 @@ class DAC(BaseModel, CodecMixin):
             json_config = json.loads(data)
             h = AttrDict(json_config)
             self.decoder = BigVGAN(h)
-
+        elif self.decoder_type == "vocos":
+            self.bigvgan_conf = bigvgan_conf
+            with open(self.bigvgan_conf) as f:
+                data = f.read()
+            json_config = json.loads(data) # dict
+            self.decoder = VocosDecoder(**json_config)
+        else:
+            raise ValueError(f"Invalid decoder type: {decoder_type}")   
         self.distill = distill
         self.distill_hidden_dim = distill_hidden_dim
-        proj_dim = self.distill_hidden_dim * 2
-        self.projectors = InterpolateRegulator([0,1], self.vae_dim,proj_dim,self.distill_hidden_dim)
-
+        self.sampling_ratios = sampling_ratios
+        if align_space == "ssl":
+            proj_dim = self.distill_hidden_dim * 2
+            self.projectors = InterpolateRegulator(self.sampling_ratios, self.vae_dim,proj_dim,self.distill_hidden_dim)
+        elif align_space == "vae":
+            proj_dim = self.vae_dim * 2
+            self.projectors = InterpolateRegulator(self.sampling_ratios, self.distill_hidden_dim, proj_dim, self.vae_dim)
+        
+        self.distill_loss_dim = distill_loss_dim
+        self.masked_mean = masked_mean
+        self.align_space = align_space
         self.delay = self.get_delay()
 
     def _build_residual_blocks(self, in_dim, out_dim):
@@ -322,7 +350,9 @@ class DAC(BaseModel, CodecMixin):
             z = self.decoder_proj(z).transpose(1,2) 
             recon = self.decoder(z)
         elif self.decoder_type == "bigvgan":
-            recon = self.decoder(z.transpose(1,2))   
+            recon = self.decoder(z.transpose(1,2))    # bigvgan 需要的输入是 B, T, D
+        elif self.decoder_type == "vocos":
+            recon = self.decoder(z.transpose(1,2)).unsqueeze(1)
         return recon
 
     def forward(
@@ -331,9 +361,9 @@ class DAC(BaseModel, CodecMixin):
         sample_rate: int = None,
         guidance: torch.Tensor = None # B, T, D
     ):
-        length = audio_data.shape[-1]
+        bsz, length = audio_data.shape[0], audio_data.shape[-1] # audio_data: B,1,T
         audio_data = self.preprocess(audio_data, sample_rate)
-        z, mu, log_var, kl_loss = self.encode(audio_data)
+        z, mu, log_var, kl_loss = self.encode(audio_data) # z.shape = B, T, D
         proj_loss = 0.
         if self.distill and self.training:
             guidance_lengths = [g.shape[0] for g in guidance]
@@ -341,16 +371,43 @@ class DAC(BaseModel, CodecMixin):
             target_lengths = torch.tensor(guidance_lengths, device=z.device)
             z_lengths = torch.tensor(z_lens, device = z.device)
             z_mask = make_pad_mask(z_lengths, max_len=torch.max(target_lengths)) # 16 150, padding的部分是1
-            
-            proj_z, olens = self.projectors(z, z_lengths, target_lengths)
-            bsz = proj_z.shape[0]
-            for i, (pi, gi) in enumerate(zip(proj_z,guidance)):
-                cos_sim = F.cosine_similarity(
-                    pi, # 16, 150, 1024
-                    gi, # 16, 150, 1024
-                    dim = -1
-                )
-                proj_loss += masked_mean(-cos_sim, ~z_mask[i])
+            g_mask = make_pad_mask(target_lengths,max_len=torch.max(z_lengths))
+            if self.align_space == "ssl":
+                proj_z, olens = self.projectors(z, z_lengths, target_lengths)
+                bsz, seq_len, distill_dim = proj_z.shape
+                for i, (pi, gi) in enumerate(zip(proj_z,guidance)):
+                    cos_sim = F.cosine_similarity(
+                        pi, # 16, 150, 1024
+                        gi, # 16, 150, 1024
+                        dim = self.distill_loss_dim
+                    )
+                    if self.distill_loss_dim == -1:
+                        if self.masked_mean:
+                            proj_loss += masked_mean(-cos_sim, ~z_mask[i])
+                        else:
+                            proj_loss += -cos_sim.sum() / seq_len
+                    elif self.distill_loss_dim == 0:
+                        # print(cos_sim.shape)
+                        proj_loss += -cos_sim.sum() / distill_dim
+            elif self.align_space == "vae":
+                proj_g, olens = self.projectors(guidance, target_lengths, z_lengths)
+                # print(f"guidance shape {guidance.shape} | proj_g shape {proj_g.shape}")
+                # print(g_mask)
+                bsz, seq_len, distill_dim = proj_g.shape
+                for i, (pi, gi) in enumerate(zip(z, proj_g)):
+                    cos_sim = F.cosine_similarity(
+                        pi, # 16, 150, 32
+                        gi, # 16, 150, 32
+                        dim = -1
+                    )
+                    if self.distill_loss_dim == -1:
+                        if self.masked_mean:
+                            proj_loss += masked_mean(-cos_sim, ~g_mask[i])
+                        else:
+                            proj_loss += -cos_sim.sum() / seq_len
+                    elif self.distill_loss_dim == 0:
+                        # print(cos_sim.shape)
+                        proj_loss += -cos_sim.sum() / distill_dim
             proj_loss = proj_loss / bsz
             
         x = self.decode(z)

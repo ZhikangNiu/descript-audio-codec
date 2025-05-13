@@ -21,9 +21,13 @@ class InterpolateRegulator(nn.Module):
                 norm = nn.GroupNorm(groups, channels)
                 act = nn.Mish()
                 model.extend([module, norm, act])
-        model.append(
-            nn.Conv1d(channels, out_channels, 1, 1) # 这个是改channel的维度
-        )
+            model.append(
+                nn.Conv1d(channels, out_channels, 1, 1) # 这个是改channel的维度
+            )
+        elif len(sampling_ratios) == 0:
+            model.append(
+                nn.Conv1d(in_channels, out_channels, 1, 1) # 这个是改channel的维度
+            )
         self.model = nn.Sequential(*model)
 
     def forward(self, x, xlens=None, ylens=None):
