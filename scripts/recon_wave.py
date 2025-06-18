@@ -8,11 +8,15 @@ from train import DAC
 import numpy as np
 from tqdm import tqdm
 import torchaudio
-
+import json
 from dac.compare.encodec import Encodec
 
 Encodec = argbind.bind(Encodec)
-target_sample_rate=24000
+
+def read_json_file(metainfo_path):
+    with open(metainfo_path,"r") as f:
+        data = json.load(f)
+    return data
 
 def load_state(
     save_path: str,
@@ -27,9 +31,16 @@ def load_state(
         "package": False, # NOTE: 不太确定这个有什么影响
     }
     print(f"Resuming from {str(Path('.').absolute())}/{kwargs['folder']}")
-
+    metainfo_path = Path('.').absolute()/kwargs['folder']/"metainfo.json"
+    metainfo = read_json_file(metainfo_path)
+    ckpt_path = Path(kwargs["folder"]) / "dac" / "weights.pth"
+    model_dict = torch.load(ckpt_path,map_location=kwargs["map_location"])
+    filter_dict = {k:v for k, v in model_dict["state_dict"].items() if not k.startswith("projectors")}
     if model_type == "dac":
-        generator, _ = DAC.load_from_folder(**kwargs)
+        generator = DAC(**metainfo["DAC"])
+        del generator.projectors
+        generator.load_state_dict(filter_dict, strict=True)
+        generator.eval()
     elif model_type == "encodec":
         generator = Encodec(bandwidth=bandwidth)
 
@@ -70,15 +81,15 @@ def get_samples(
     generator.eval()
     audio_files = list(Path(input).rglob("*.npy"))
     print(f"Audio Nums = {len(audio_files)}")
-
-    # global process
-    # process = tracker.track("process", len(audio_files))(process)
+    print(f"Audio Generator SR: {generator.sample_rate}")
 
     for i in tqdm(range(len(audio_files))):
         output_audio = audio_files[i].with_suffix(".wav")
+        if output_audio.exists():
+            continue
         latent = np.load(audio_files[i])
         recon = recon_wav_from_latent(latent,generator)
-        torchaudio.save(output_audio,recon.squeeze(0).cpu(),sample_rate=target_sample_rate)
+        torchaudio.save(output_audio,recon.squeeze(0).cpu(),sample_rate=generator.sample_rate)
 
 if __name__ == "__main__":
     args = argbind.parse_args()

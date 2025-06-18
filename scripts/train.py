@@ -125,16 +125,18 @@ def save_metainfo(save_path):
     decoder_params = read_json_file(params["DAC.bigvgan_conf"])
     metainfo = {
         "DAC": dac_params,
-        "Discriminator": disc_params
+        "Decoder":decoder_params
     }
-    with open( Path(save_path) / "metainfo.json", "w") as f:
-        metainfo["Decoder"] = decoder_params
+    with open(Path(save_path) / "metainfo.json", "w") as f:
+        metainfo["Discriminator"] = disc_params
         json.dump(metainfo, f, ensure_ascii=False)
-    with open( Path(save_path) / "config.json", "w") as f:
-        metainfo["params"] = params
-        metainfo["Decoder"] = decoder_params
-        json.dump(params, f, ensure_ascii=False)
         # json.dump(metainfo, f, indent=4, ensure_ascii=False)
+    
+    with open(Path(save_path) / "config.json", "w") as f:
+        # json.dump(params, f, ensure_ascii=False)
+        metainfo["params"] = params
+        metainfo["Discriminator"] = disc_params
+        json.dump(params, f, indent=4, ensure_ascii=False)
 
 def read_json_file(metainfo_path):
     with open(metainfo_path,"r") as f:
@@ -149,7 +151,6 @@ def load(
     save_path: str,
     resume: bool = False,
     tag: str = "latest",
-    load_weights: bool = False,
 ):
     generator = None
     discriminator = None
@@ -473,7 +474,7 @@ def train(
     # These functions run only on the 0-rank process
     save_samples = when(lambda: accel.local_rank == 0)(save_samples)
     checkpoint = when(lambda: accel.local_rank == 0)(checkpoint)
-    state.tracker.print(f"Loss weights: {lambdas}")
+    state.tracker.print(f"Loss Weights\n{lambdas}")
     if not args["resume"] and use_kl_warmup:
         total_warmup_steps = int(num_iters * kl_warmup_ratio)
         kl_end_weight = lambdas["vae/kl_loss"]
