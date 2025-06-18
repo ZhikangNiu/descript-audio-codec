@@ -12,6 +12,7 @@ ckpts/*
 vae_exp_large/*
 LibriTTS/*
 LibriSpeech/*
+backup/*
 # Distribution / packaging
 .Python
 build/
