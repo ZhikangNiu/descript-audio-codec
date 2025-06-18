@@ -26,7 +26,7 @@ class InterpolateRegulator(nn.Module):
             )
         elif len(sampling_ratios) == 0:
             model.append(
-                nn.Conv1d(in_channels, out_channels, 1, 1) # 这个是改channel的维度
+                nn.Conv1d(in_channels, out_channels,1)
             )
         self.model = nn.Sequential(*model)
 

@@ -5,6 +5,20 @@ import torch
 from torch import nn, sin, pow
 from torch.nn import Parameter
 
+@torch.jit.script
+def snake(x, alpha):
+    x = x + (alpha + 1e-9).reciprocal() * torch.sin(alpha * x).pow(2)
+    return x
+
+@torch.jit.script
+def snakebeta(x, alpha,beta,alpha_logscale):
+    alpha = alpha.unsqueeze(0).unsqueeze(-1)  # Line up with x to [B, C, T]
+    beta = beta.unsqueeze(0).unsqueeze(-1)
+    if alpha_logscale:
+        alpha = torch.exp(alpha)
+        beta = torch.exp(beta)
+    x = x + (beta + 1e-9).reciprocal() * torch.sin(alpha * x).pow(2)
+    return x
 
 class Snake(nn.Module):
     """
@@ -57,7 +71,8 @@ class Snake(nn.Module):
         alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # Line up with x to [B, C, T]
         if self.alpha_logscale:
             alpha = torch.exp(alpha)
-        x = x + (1.0 / (alpha + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+        x = snake(x, alpha)
+        # x = x + (1.0 / (alpha + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
 
         return x
 
@@ -97,7 +112,8 @@ class SnakeBeta(nn.Module):
         self.in_features = in_features
 
         # Initialize alpha
-        self.alpha_logscale = alpha_logscale
+        self.alpha_logscale = torch.BoolTensor([alpha_logscale])
+        # self.alpha_logscale = alpha_logscale
         if self.alpha_logscale:  # Log scale alphas initialized to zeros
             self.alpha = Parameter(torch.zeros(in_features) * alpha)
             self.beta = Parameter(torch.zeros(in_features) * alpha)
@@ -116,11 +132,13 @@ class SnakeBeta(nn.Module):
         Applies the function to the input elementwise.
         SnakeBeta ∶= x + 1/b * sin^2 (xa)
         """
-        alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # Line up with x to [B, C, T]
-        beta = self.beta.unsqueeze(0).unsqueeze(-1)
-        if self.alpha_logscale:
-            alpha = torch.exp(alpha)
-            beta = torch.exp(beta)
-        x = x + (1.0 / (beta + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+        # alpha = self.alpha.unsqueeze(0).unsqueeze(-1)  # Line up with x to [B, C, T]
+        # beta = self.beta.unsqueeze(0).unsqueeze(-1)
+        # if self.alpha_logscale:
+        #     alpha = torch.exp(alpha)
+        #     beta = torch.exp(beta)
+        # x = x + (1.0 / (beta + self.no_div_by_zero)) * pow(sin(x * alpha), 2)
+        x = snakebeta(x,alpha=self.alpha,beta=self.beta,alpha_logscale=self.alpha_logscale[0])
+        
 
         return x

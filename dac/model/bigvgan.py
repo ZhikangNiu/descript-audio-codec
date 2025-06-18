@@ -14,10 +14,10 @@ import torch.nn as nn
 from torch.nn import Conv1d, ConvTranspose1d
 from torch.nn.utils import remove_weight_norm
 from torch.nn.utils.parametrizations import weight_norm
-
 from dac.model import activations
 from dac.model.utils import init_weights, get_padding
 from dac.model.alias_free_activation.torch.act import Activation1d as TorchActivation1d
+from dac.model.attn_proj import AttnProjection
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 
@@ -289,9 +289,14 @@ class BigVGAN(
         self.num_upsamples = len(h.upsample_rates)
 
         # Pre-conv
-        self.conv_pre = weight_norm(
-            Conv1d(h.num_mels, h.upsample_initial_channel, 7, 1, padding=3)
-        )
+        attn_proj = self.h.get("attn_proj", False)
+        num_heads = self.h.get("num_heads", 8 )
+        if attn_proj:
+            self.conv_pre = AttnProjection(h.num_mels,h.upsample_initial_channel,num_heads)
+        else:
+            self.conv_pre = weight_norm(
+                Conv1d(h.num_mels, h.upsample_initial_channel, 7, 1, padding=3)
+            )
 
         # Define which AMPBlock to use. BigVGAN uses AMPBlock1 as default
         if h.resblock == "1":

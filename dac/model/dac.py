@@ -303,7 +303,6 @@ class DAC(BaseModel, CodecMixin):
                     nn.GELU()
                 ))
         else:
-            # 维度相同则构建恒等残差块
             layers.append(ResidualBottleneck(in_dim, out_dim))
         
         return nn.Sequential(*layers)
@@ -377,9 +376,9 @@ class DAC(BaseModel, CodecMixin):
                 bsz, seq_len, distill_dim = proj_z.shape
                 for i, (pi, gi) in enumerate(zip(proj_z,guidance)):
                     cos_sim = F.cosine_similarity(
-                        pi, # 16, 150, 1024
-                        gi, # 16, 150, 1024
-                        dim = self.distill_loss_dim
+                        pi, # 150, 1024
+                        gi, # 150, 1024
+                        dim = self.distill_loss_dim # need to change self.distill_loss_dim
                     )
                     if self.distill_loss_dim == -1:
                         if self.masked_mean:
@@ -387,18 +386,15 @@ class DAC(BaseModel, CodecMixin):
                         else:
                             proj_loss += -cos_sim.sum() / seq_len
                     elif self.distill_loss_dim == 0:
-                        # print(cos_sim.shape)
                         proj_loss += -cos_sim.sum() / distill_dim
             elif self.align_space == "vae":
                 proj_g, olens = self.projectors(guidance, target_lengths, z_lengths)
-                # print(f"guidance shape {guidance.shape} | proj_g shape {proj_g.shape}")
-                # print(g_mask)
                 bsz, seq_len, distill_dim = proj_g.shape
                 for i, (pi, gi) in enumerate(zip(z, proj_g)):
                     cos_sim = F.cosine_similarity(
-                        pi, # 16, 150, 32
-                        gi, # 16, 150, 32
-                        dim = -1
+                        pi, # 150, 1024
+                        gi, # 150, 1024
+                        dim = self.distill_loss_dim # need to change self.distill_loss_dim
                     )
                     if self.distill_loss_dim == -1:
                         if self.masked_mean:
@@ -406,7 +402,6 @@ class DAC(BaseModel, CodecMixin):
                         else:
                             proj_loss += -cos_sim.sum() / seq_len
                     elif self.distill_loss_dim == 0:
-                        # print(cos_sim.shape)
                         proj_loss += -cos_sim.sum() / distill_dim
             proj_loss = proj_loss / bsz
             
