@@ -15,7 +15,7 @@ from audiotools.ml.decorators import Tracker
 from audiotools.ml.decorators import when
 from torch.utils.tensorboard import SummaryWriter
 import json
-
+from ema_pytorch import EMA
 import dac
 from dac.data.datasets import AudioDataset, AudioLoader,ConcatDataset
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -101,6 +101,7 @@ def build_dataset(
 @dataclass
 class State:
     generator: DAC
+    ema_generator: EMA
     optimizer_g: AdamW
     scheduler_g: ExponentialLR
 
@@ -152,11 +153,13 @@ def load(
 ):
     generator = None
     discriminator = None
-
+    ema_generator = None
+    
     if resume:
         ckpt_folder = Path(f"{save_path}/{tag}")
         generator_ckpt = ckpt_folder / "dac" / "weights.pth"
         generator_dict = torch.load(generator_ckpt ,map_location="cpu")["state_dict"]
+
         discriminator_ckpt = ckpt_folder / "discriminator" / "weights.pth"
         discriminator_dict = torch.load(discriminator_ckpt,map_location="cpu")["state_dict"]
         metainfo_path = ckpt_folder / "metainfo.json"
@@ -164,13 +167,25 @@ def load(
         
         generator = DAC(**metainfo["DAC"])
         generator.load_state_dict(generator_dict,strict=True)
+        
         discriminator = Discriminator(**metainfo["Discriminator"])
         discriminator.load_state_dict(discriminator_dict,strict=True)
         
         tracker.print(f"Resuming from {ckpt_folder}")
+        
+        if accel.local_rank == 0:
+            ema_generator_ckpt = ckpt_folder / "dac" / "ema_state_dict.pth"
+            ema_generator_dict = torch.load(ema_generator_ckpt ,map_location="cpu")
+            ema_generator = EMA(generator, include_online_model=False)
+            ema_generator.load_state_dict(ema_generator_dict,strict=True)
+            tracker.print(f"Resume load ema_generator from {ema_generator_ckpt}")
 
     generator = DAC() if generator is None else generator
     discriminator = Discriminator() if discriminator is None else discriminator
+    
+    if accel.local_rank == 0:
+        ema_generator = EMA(generator, include_online_model=False) if ema_generator is None else ema_generator
+        ema_generator.to(accel.device)
     
     tracker.print(f"[Encoder] Parameters: {count_parameters(generator.encoder):,}")
     tracker.print(f"[Decoder] Parameters: {count_parameters(generator.decoder):,}")
@@ -180,6 +195,7 @@ def load(
 
     generator = accel.prepare_model(generator,find_unused_parameters=True)
     discriminator = accel.prepare_model(discriminator,find_unused_parameters=True,broadcast_buffers=False)
+    
     for name, param in generator.named_parameters():
         if not param.requires_grad:
             tracker.print(f"Unused parameter in generator: {name}")
@@ -233,6 +249,7 @@ def load(
 
     return State(
         generator=generator,
+        ema_generator=ema_generator,
         optimizer_g=optimizer_g,
         scheduler_g=scheduler_g,
         discriminator=discriminator,
@@ -320,6 +337,10 @@ def train_loop(state, batch, accel, lambdas):
     accel.step(state.optimizer_g)
     state.scheduler_g.step()
     accel.update()
+    
+    # Update EMA weights
+    if accel.local_rank == 0:
+        state.ema_generator.update()
 
     output["other/learning_rate"] = state.optimizer_g.param_groups[0]["lr"]
     output["other/batch_size"] = signal.batch_size * accel.world_size
@@ -341,7 +362,9 @@ def checkpoint(state, save_iters, save_path):
             "optimizer.pth": state.optimizer_g.state_dict(),
             "scheduler.pth": state.scheduler_g.state_dict(),
             "tracker.pth": state.tracker.state_dict(),
+            "ema_state_dict.pth": state.ema_generator.state_dict(),
         }
+            
         accel.unwrap(state.generator).metadata = metainfo
         accel.unwrap(state.generator).save_to_folder(
             f"{save_path}/{tag}", generator_extra,package=False
@@ -472,7 +495,7 @@ def train(
     # These functions run only on the 0-rank process
     save_samples = when(lambda: accel.local_rank == 0)(save_samples)
     checkpoint = when(lambda: accel.local_rank == 0)(checkpoint)
-    state.tracker.print(f"Loss Weights\n{lambdas}")
+    state.tracker.print(f"Loss weights: {lambdas}")
     if not args["resume"] and use_kl_warmup:
         total_warmup_steps = int(num_iters * kl_warmup_ratio)
         kl_end_weight = lambdas["vae/kl_loss"]
